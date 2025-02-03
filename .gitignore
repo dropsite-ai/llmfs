@@ -2,4 +2,4 @@
 dist
 *.db
 *.db-*
-*.yaml
+llmfs.yaml
