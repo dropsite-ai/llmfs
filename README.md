@@ -4,21 +4,12 @@ The Open-Source Filesystem Built for AI and Humans.
 
 ## Install
 
-Download from [Releases](https://github.com/dropsite-ai/llmfs/releases):
-
 ```bash
-tar -xzf llmfs_Darwin_arm64.tar.gz
-chmod +x llmfs
-sudo mv llmfs /usr/local/bin/
+brew tap dropsite-ai/homebrew-tap
+brew install llmfs
 ```
 
-Or manually build and install:
-
-```bash
-git clone git@github.com:dropsite-ai/llmfs.git
-cd llmfs
-make install
-```
+You can also [download binaries directly from our releases](https://github.com/dropsite-ai/llmfs/releases).
 
 ## Test
 
