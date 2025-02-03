@@ -1,0 +1,148 @@
+{
+  "name": "perform_filesystem_operations",
+  "description": "Perform multiple filesystem operations at once, in a single transaction.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "description": "A filesystem operation (list, read, delete, or write).",
+    "properties": {
+      "match": {
+        "type": "object",
+        "description": "File or directory match strings.",
+        "properties": {
+          "path": {
+            "type": "object",
+            "description": "Path match strings.",
+            "properties": {
+              "contains": {
+                "type": "string",
+                "description": "Match string anywhere in path."
+              },
+              "begins_with": {
+                "type": "string",
+                "description": "Match string at beginning of path."
+              },
+              "ends_with": {
+                "type": "string",
+                "description": "Match string at end of path."
+              }
+            }
+          },
+          "description": {
+            "type": "object",
+            "description": "Description match.",
+            "properties": {
+              "contains": {
+                "type": "string",
+                "description": "Match string anywhere in description."
+              }
+            }
+          },
+          "content": {
+            "type": "object",
+            "description": "Content match.",
+            "properties": {
+              "contains": {
+                "type": "string",
+                "description": "Match string anywhere in content."
+              }
+            }
+          },
+          "type": {
+            "type": "string",
+            "description": "Match only a certain type.",
+            "enum": [
+              "file",
+              "directory"
+            ]
+          }
+        }
+      },
+      "operations": {
+        "list": {
+          "type": "boolean",
+          "description": "Read metadata of results (is_directory, description, created_at, updated_at)."
+        },
+        "read": {
+          "type": "boolean",
+          "description": "Read metadata and content of results."
+        },
+        "delete": {
+          "type": "boolean",
+          "description": "Delete all files or directories in results."
+        },
+        "write": {
+          "type": "object",
+          "properties": {
+            "relative_path": {
+              "type": "string",
+              "description": "If specified, a new file at this path will be created relative to every matching directory. If not specified, every matching file will be updated."
+            },
+            "description": {
+              "type": "string",
+              "description": "Description of file or directory."
+            },
+            "content": {
+              "type": "object",
+              "description": "Content is either an explicit content string or URL.",
+              "properties": {
+                "content": {
+                  "type": "string",
+                  "description": "Explicit content string."
+                },
+                "url": {
+                  "type": "string",
+                  "description": "URL of content."
+                }
+              }
+            },
+            "permissions": {
+              "type": "object",
+              "description": "Permission for file or directory, by username. The key is the username, the value is a string with any one of these characters in it: 'wrld' (write, read, list, delete).",
+              "properties": {
+                "permission": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "pagination": {
+        "type": "object",
+        "description": "Pagination options.",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number (starting at 1)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max items per page."
+          }
+        }
+      },
+      "sort": {
+        "type": "object",
+        "description": "Sort options.",
+        "properties": {
+          "field": {
+            "type": "string",
+            "description": "Field to sort by (e.g. 'name', 'created_at', 'updated_at)."
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "description": "Sort direction."
+          }
+        }
+      }
+    }
+  }
+}
