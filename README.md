@@ -6,7 +6,7 @@ The Open-Source Virtual Filesystem Built for AI and Humans
 
 ## Overview
 
-LLMFS is a high-performance virtual filesystem server that lets you execute multiple file operations—such as list, read, write, and delete—in a single atomic API call. Designed to cater to both AI systems (LLMs) and human users, LLMFS offers a flexible, secure, and collaborative environment for managing file operations and permissions.
+LLMFS is a high-performance virtual filesystem server built on SQLite that lets you execute multiple file operations—such as list, read, write, and delete—in a single atomic API call. Designed to cater to both AI systems (LLMs) and human users, LLMFS offers a flexible, secure, and collaborative environment for managing file operations and permissions.
 
 ---
 
