@@ -1,15 +1,20 @@
 package llmfs
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strconv"
 	"time"
+
+	"github.com/dropsite-ai/llmfs/config"
 )
 
 var FilenameRegexp = regexp.MustCompile(`[^a-zA-Z0-9_\-]`)
 
-func RowToFileRecord(row map[string]interface{}, includeContent bool) FileRecord {
+func RowToFileRecord(row map[string]interface{}, currentUser string, includeContent bool) FileRecord {
 	fr := FileRecord{
 		ID:          AsInt64(row["id"]),
 		Path:        AsString(row["path"]),
@@ -17,11 +22,34 @@ func RowToFileRecord(row map[string]interface{}, includeContent bool) FileRecord
 		Description: AsString(row["description"]),
 		CreatedAt:   ParseTime(row["created_at"]),
 		UpdatedAt:   ParseTime(row["updated_at"]),
+		BlobID:      AsInt64(row["blob_id"]),
 	}
 	if includeContent {
 		fr.Content = AsString(row["content"])
 	}
+	if fr.BlobID != 0 {
+		// Clear out the text content, if any
+		fr.Content = ""
+
+		// Generate ephemeral link valid for 10 minutes
+		expires := time.Now().Add(10 * time.Minute)
+		fr.BlobURL = GenerateSignedBlobURL(fr.BlobID, expires)
+	}
 	return fr
+}
+
+func GenerateSignedBlobURL(blobID int64, expires time.Time) string {
+	secretKey := []byte(config.Cfg.JWTSecret)
+
+	// Now only embed blobID + expiration in the HMAC
+	base := fmt.Sprintf("%d|%d", blobID, expires.Unix())
+	mac := hmac.New(sha256.New, secretKey)
+	mac.Write([]byte(base))
+	sigHex := hex.EncodeToString(mac.Sum(nil))
+
+	// Return a signed URL *without* any username param
+	return fmt.Sprintf("/blobs/signed?blob_id=%d&exp=%d&sig=%s",
+		blobID, expires.Unix(), sigHex)
 }
 
 func ParseTime(v interface{}) time.Time {

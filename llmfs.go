@@ -3,10 +3,17 @@ package llmfs
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/dropsite-ai/sqliteutils/exec"
+)
+
+type contextKey int
+
+const (
+	UsernameKey contextKey = iota
 )
 
 // FilesystemOperation represents an operation on the filesystem.
@@ -101,6 +108,8 @@ type FileRecord struct {
 	IsDirectory bool      `json:"is_directory"`
 	Description string    `json:"description,omitempty"`
 	Content     string    `json:"content,omitempty"`
+	BlobID      int64     `json:"blob_id,omitempty"`
+	BlobURL     string    `json:"blob_url,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -154,10 +163,10 @@ func PerformFilesystemOperations(ctx context.Context, currentUser string, ownerU
 
 		switch opType {
 		case "list":
-			rec := RowToFileRecord(row, false)
+			rec := RowToFileRecord(row, currentUser, false)
 			results[opIdx].Results = append(results[opIdx].Results, rec)
 		case "read":
-			rec := RowToFileRecord(row, true)
+			rec := RowToFileRecord(row, currentUser, true)
 			results[opIdx].Results = append(results[opIdx].Results, rec)
 		case "delete":
 			if cnt, ok := row["cnt"].(int64); ok {
@@ -385,9 +394,22 @@ func buildWriteQuery(matched []fileIDPath, w *WriteOperation, opIndex int) ([]st
 
 	var queries []string
 	var paramsList []map[string]interface{}
+	var blobID *int64 // pointer, to detect if we found a "blob" reference
 	contentStr := ""
+
 	if w.Content != nil {
-		contentStr = w.Content.Content
+		if w.Content.URL != "" && strings.HasPrefix(w.Content.URL, "llmfs://blob/") {
+			// Parse out the ID
+			idStr := strings.TrimPrefix(w.Content.URL, "llmfs://blob/")
+			parsedID, err := strconv.ParseInt(idStr, 10, 64)
+			if err == nil && parsedID > 0 {
+				blobID = &parsedID
+			}
+		}
+		if w.Content.Content != "" && blobID == nil {
+			// fallback if not a blob URL
+			contentStr = w.Content.Content
+		}
 	}
 
 	// (A) Update existing matched items.
@@ -408,14 +430,17 @@ func buildWriteQuery(matched []fileIDPath, w *WriteOperation, opIndex int) ([]st
 UPDATE filesystem
 SET description = CASE WHEN :desc IS NOT NULL THEN :desc ELSE description END,
     content     = CASE WHEN :cnt  IS NOT NULL THEN :cnt  ELSE content END,
+    blob_id     = CASE WHEN :blob_id IS NOT NULL THEN :blob_id ELSE blob_id END,
     updated_at  = CURRENT_TIMESTAMP
 WHERE id IN (` + idPlaceholderList + `);
 `
 		countQuery := `
 SELECT :op_idx AS op_idx, 'write' AS op_type, changes() AS cnt;
 `
+
 		idParams[":desc"] = NilIfEmpty(w.Description)
 		idParams[":cnt"] = NilIfEmpty(contentStr)
+		idParams[":blob_id"] = blobID
 		idParams[":op_idx"] = opIndex
 		queries = append(queries, updateQuery, countQuery)
 		paramsList = append(paramsList, idParams, nil)
@@ -427,16 +452,17 @@ SELECT :op_idx AS op_idx, 'write' AS op_type, changes() AS cnt;
 		for _, m := range matched {
 			newPath := BuildNewPath(m.Path, w.RelativePath)
 			insertQuery := `
-INSERT INTO filesystem (path, is_directory, description, content, permissions, created_at, updated_at)
-VALUES (:path, 0, :desc, :cnt, '[]', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+INSERT INTO filesystem (path, is_directory, description, content, blob_id, permissions, created_at, updated_at)
+VALUES (:path, 0, :desc, :cnt, :blob_id, '[]', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 `
 			countQuery := `
 SELECT :op_idx AS op_idx, 'write' AS op_type, changes() AS cnt;
 `
 			paramsIns := map[string]interface{}{
-				":path": newPath,
-				":desc": NilIfEmpty(w.Description),
-				":cnt":  NilIfEmpty(contentStr),
+				":path":    newPath,
+				":desc":    NilIfEmpty(w.Description),
+				":cnt":     NilIfEmpty(contentStr),
+				":blob_id": blobID,
 			}
 			paramsCount := map[string]interface{}{
 				":op_idx": opIndex,

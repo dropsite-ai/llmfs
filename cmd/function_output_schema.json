@@ -1,0 +1,85 @@
+{
+  "title": "perform_filesystem_operations_response",
+  "description": "The response from PerformFilesystemOperations is an array of file operation results.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "title": "File operation results.",
+    "properties": {
+      "operation_index": {
+        "type": "integer",
+        "description": "Zero-based index of the operation in the request array"
+      },
+      "error": {
+        "type": "string",
+        "description": "An error message if the operation failed"
+      },
+      "results": {
+        "type": "array",
+        "description": "File records returned from list/read operations",
+        "items": {
+          "type": "object",
+          "title": "File record result.",
+          "properties": {
+            "id": {
+              "type": "integer",
+              "description": "Unique ID of the file/directory"
+            },
+            "path": {
+              "type": "string",
+              "description": "The filesystem path"
+            },
+            "is_directory": {
+              "type": "boolean",
+              "description": "True if path is a directory, false if a file"
+            },
+            "description": {
+              "type": "string",
+              "description": "Optional description of the file/directory"
+            },
+            "content": {
+              "type": "string",
+              "description": "The text content (if read allowed), otherwise omitted"
+            },
+            "blob_id": {
+              "type": "integer",
+              "description": "Blob ID if this file references a BLOB row (otherwise omitted)"
+            },
+            "blob_url": {
+              "type": "string",
+              "description": "A signed URL to fetch blob contents, if blob_id is present"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Time created in YYYY-MM-DD HH:MM:SS format"
+            },
+            "updated_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Time last updated in YYYY-MM-DD HH:MM:SS format"
+            }
+          },
+          "required": [
+            "id",
+            "path",
+            "is_directory",
+            "created_at",
+            "updated_at"
+          ]
+        }
+      },
+      "write_count": {
+        "type": "integer",
+        "description": "Number of files or directories created/updated"
+      },
+      "delete_count": {
+        "type": "integer",
+        "description": "Number of files or directories deleted"
+      }
+    },
+    "required": [
+      "operation_index"
+    ]
+  }
+}

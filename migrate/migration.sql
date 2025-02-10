@@ -1,3 +1,24 @@
+-- Create the 'blobs' table if it doesn't exist
+CREATE TABLE IF NOT EXISTS blobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    data BLOB NOT NULL,
+    name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    username TEXT NOT NULL,
+    content_length INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Trigger: update 'updated_at' on row changes
+CREATE TRIGGER IF NOT EXISTS blobs_update_timestamp
+AFTER UPDATE ON blobs
+BEGIN
+    UPDATE blobs
+    SET updated_at = CURRENT_TIMESTAMP
+    WHERE id = new.id;
+END;
+
 -- Table: Filesystem
 CREATE TABLE IF NOT EXISTS filesystem (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -7,16 +28,21 @@ CREATE TABLE IF NOT EXISTS filesystem (
     description TEXT,
     content TEXT,
     permissions TEXT NOT NULL,
+    blob_id INTEGER REFERENCES blobs(id) ON DELETE SET NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Index: Filesystem depth
 CREATE INDEX IF NOT EXISTS idx_filesystem_depth ON filesystem(depth);
 
+-- Index: Filesystem created at
 CREATE INDEX IF NOT EXISTS idx_filesystem_created_at ON filesystem(created_at);
 
+-- Index: Filesystem updated at
 CREATE INDEX IF NOT EXISTS idx_filesystem_updated_at ON filesystem(updated_at);
 
+-- Index: Filesystem directory status
 CREATE INDEX IF NOT EXISTS idx_filesystem_is_directory ON filesystem(is_directory);
 
 -- Trigger: Set filesystem depth after insert
@@ -35,6 +61,28 @@ BEGIN
     UPDATE filesystem
     SET depth = (LENGTH(path) - LENGTH(REPLACE(path, '/', '')))
     WHERE id = new.id;
+END;
+
+-- Trigger: If a filesystem row is deleted, and no other rows reference that old.blob_id,
+--          remove the blob from the "blobs" table.
+CREATE TRIGGER IF NOT EXISTS filesystem_delete_blob_after_delete
+AFTER DELETE ON filesystem
+WHEN old.blob_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM filesystem WHERE blob_id = old.blob_id)
+BEGIN
+    DELETE FROM blobs WHERE id = old.blob_id;
+END;
+
+-- Trigger: If a filesystem row updates blob_id to a new value (or to NULL),
+--          and the old blob_id is no longer referenced by any filesystem rows,
+--          remove the blob from the "blobs" table.
+CREATE TRIGGER IF NOT EXISTS filesystem_delete_blob_after_update
+AFTER UPDATE OF blob_id ON filesystem
+WHEN old.blob_id IS NOT NULL
+  AND old.blob_id != new.blob_id
+  AND NOT EXISTS (SELECT 1 FROM filesystem WHERE blob_id = old.blob_id)
+BEGIN
+    DELETE FROM blobs WHERE id = old.blob_id;
 END;
 
 -- Virtual table: Filesystem path FTS

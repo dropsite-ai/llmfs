@@ -19,8 +19,17 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 )
 
-//go:embed schema.json
+// We embed both function_input_schema.json (for request validation) and function_output_schema.json (for describing our response).
+//
+//go:embed function_input_schema.json function_output_schema.json
 var schemaFS embed.FS
+
+// We'll keep these as globals so they can be shared easily.
+var (
+	inputSchemaData  interface{}             // Parsed JSON from function_input_schema.json (used for /system response)
+	outputSchemaData interface{}             // Parsed JSON from function_output_schema.json (used for /system response)
+	schemaLoader     gojsonschema.JSONLoader // For validating incoming requests (/perform)
+)
 
 func main() {
 	// Flags.
@@ -29,38 +38,24 @@ func main() {
 	authFlag := flag.String("auth", "", "Authentication URL")
 	poolSize := flag.Int("pool", 1, "Size of DB pool")
 	httpPort := flag.Int("port", 8080, "HTTP port to listen on")
-	showSchema := flag.Bool("schema", false, "Show schema for LLM function call (and exit)")
 	yamlPath := flag.String("yaml", "./llmfs.yaml", "YAML configuration path")
 	flag.Parse()
 
+	// Load our YAML config.
 	config.Load(*yamlPath)
 	if *authFlag != "" {
 		config.Cfg.AuthURL = *authFlag
 	}
 	config.Cfg.OwnerUser = *owner
 
-	// Print logo.
+	// Print a banner.
 	logo := color.New(color.FgBlack, color.BgHiCyan).SprintFunc()
 	sub := color.New(color.FgHiWhite, color.Bold).SprintFunc()
-	println(logo("🌌 LLMFS "), sub("by dropsite.ai"))
+	fmt.Println(logo("🌌 LLMFS "), sub("by dropsite.ai"))
 
 	ctx := context.Background()
 
-	// Read embedded schema.
-	schemaBytes, err := schemaFS.ReadFile("schema.json")
-	if err != nil {
-		log.Fatalf("Failed to read embedded schema: %v", err)
-	}
-	if *showSchema {
-		hi := color.New(color.FgYellow, color.Bold).SprintFunc()
-		code := color.New(color.Faint).SprintFunc()
-		println(hi("-----BEGIN FUNCTION CALL JSON SCHEMA----"))
-		println(code(string(schemaBytes)))
-		println(hi("-----END FUNCTION CALL JSON SCHEMA----"))
-		return
-	}
-
-	// Initialize the database pool.
+	// Initialize DB connection pool.
 	if err := pool.InitPool(*dbPath, *poolSize); err != nil {
 		log.Fatalf("Failed to init database pool: %v", err)
 	}
@@ -70,39 +65,60 @@ func main() {
 		}
 	}()
 
-	// Run database migrations.
+	// Run any necessary migrations on startup.
 	migrate.Migrate(ctx)
 
-	// Create a JSON Schema loader.
-	schemaLoader := gojsonschema.NewBytesLoader(schemaBytes)
+	// Preload and parse the input schema (function_input_schema.json).
+	inputSchemaBytes, err := schemaFS.ReadFile("function_input_schema.json")
+	if err != nil {
+		log.Fatalf("Failed to read embedded input schema: %v", err)
+	}
+	if err = json.Unmarshal(inputSchemaBytes, &inputSchemaData); err != nil {
+		log.Fatalf("Failed to parse input schema JSON: %v", err)
+	}
+	// Create a gojsonschema JSONLoader for validating incoming requests.
+	schemaLoader = gojsonschema.NewBytesLoader(inputSchemaBytes)
 
-	// Create a new ServeMux.
+	// Preload and parse the output schema (function_output_schema.json).
+	outputSchemaBytes, err := schemaFS.ReadFile("function_output_schema.json")
+	if err != nil {
+		log.Fatalf("Failed to read embedded output schema: %v", err)
+	}
+	if err := json.Unmarshal(outputSchemaBytes, &outputSchemaData); err != nil {
+		log.Fatalf("Failed to parse output schema JSON: %v", err)
+	}
+
+	// Prepare our HTTP handlers.
 	mux := http.NewServeMux()
 
-	// Public endpoint: /schema returns the embedded JSON schema.
-	mux.HandleFunc("/schema", func(w http.ResponseWriter, r *http.Request) {
-		f, err := schemaFS.Open("schema.json")
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to read schema: %v", err), http.StatusInternalServerError)
-			return
-		}
-		defer f.Close()
-		data, err := io.ReadAll(f)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to read schema content: %v", err), http.StatusInternalServerError)
-			return
+	// Example: POST /blobs => create blob (requires auth).
+	mux.Handle("/blobs", auth.AuthMiddleware(http.HandlerFunc(llmfs.InitiateBlobUploadHandler)))
+
+	// Example: POST /blobs/chunk => write blob chunk (requires auth).
+	mux.Handle("/blobs/chunk", auth.AuthMiddleware(http.HandlerFunc(llmfs.UploadBlobChunkHandler)))
+
+	// Example: GET /blobs/signed => read blob by signature (requires auth).
+	mux.Handle("/blobs/signed", auth.AuthMiddleware(http.HandlerFunc(llmfs.GetSignedBlobHandler)))
+
+	// Provide /system endpoint to return the dummy system instruction + both schemas.
+	mux.Handle("/system", auth.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		systemInstruction := "Call the perform_filesystem_operations function when the user's request can be implemented in one or more filesystem operations."
+
+		// Build the response from our preloaded schemas
+		resp := map[string]interface{}{
+			"system_instruction":     systemInstruction,
+			"function_input_schema":  inputSchemaData,
+			"function_output_schema": outputSchemaData,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write(data)
-	})
+		json.NewEncoder(w).Encode(resp)
+	})))
 
-	// /auth endpoint.
+	// /auth endpoint to validate tokens.
 	mux.HandleFunc("/auth", auth.AuthHandler)
 
-	// /perform endpoint, protected by authMiddleware.
+	// /perform endpoint: validated by the preloaded input schema.
 	mux.Handle("/perform", auth.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Read and validate request body.
 		bodyBytes, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to read request body: %v", err), http.StatusBadRequest)
@@ -110,6 +126,7 @@ func main() {
 		}
 		defer r.Body.Close()
 
+		// Validate JSON against the preloaded schema via gojsonschema.
 		docLoader := gojsonschema.NewBytesLoader(bodyBytes)
 		result, err := gojsonschema.Validate(schemaLoader, docLoader)
 		if err != nil {
@@ -125,24 +142,28 @@ func main() {
 			return
 		}
 
-		var input []llmfs.FilesystemOperation
-		if err = json.Unmarshal(bodyBytes, &input); err != nil {
+		// If valid, unmarshal into our operations slice.
+		var operations []llmfs.FilesystemOperation
+		if err = json.Unmarshal(bodyBytes, &operations); err != nil {
 			http.Error(w, fmt.Sprintf("JSON unmarshal error: %v", err), http.StatusBadRequest)
 			return
 		}
 
-		// Get authenticated user from context.
-		currentUser, ok := r.Context().Value(auth.UsernameKey).(string)
+		// Get the authenticated user from context.
+		currentUser, ok := r.Context().Value(llmfs.UsernameKey).(string)
 		if !ok || currentUser == "" {
 			http.Error(w, "Failed to determine authenticated user", http.StatusInternalServerError)
 			return
 		}
-		ownerUser := *owner
-		results, err := llmfs.PerformFilesystemOperations(ctx, currentUser, ownerUser, input)
+
+		// Perform the filesystem operations.
+		results, err := llmfs.PerformFilesystemOperations(ctx, currentUser, *owner, operations)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("PerformFilesystemOperations error: %v", err), http.StatusInternalServerError)
 			return
 		}
+
+		// Return the results as JSON.
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(results)
 	})))

@@ -15,12 +15,6 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
-type contextKey int
-
-const (
-	UsernameKey contextKey = iota
-)
-
 // Define a regex for Linux username restrictions.
 // This regex enforces:
 //   - 1 to 32 characters
@@ -200,7 +194,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		ctx := context.WithValue(r.Context(), UsernameKey, username)
+		ctx := context.WithValue(r.Context(), llmfs.UsernameKey, username)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

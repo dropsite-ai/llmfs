@@ -96,7 +96,7 @@ func TestHelperFunctions(t *testing.T) {
 			"created_at":   "2023-01-01 10:00:00",
 			"updated_at":   "2023-01-02 11:00:00",
 		}
-		fr := llmfs.RowToFileRecord(row, true)
+		fr := llmfs.RowToFileRecord(row, "alice", true)
 		require.Equal(t, int64(1), fr.ID)
 		require.Equal(t, "/test.txt", fr.Path)
 		require.False(t, fr.IsDirectory)

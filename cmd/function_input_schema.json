@@ -86,9 +86,17 @@
               "type": "object",
               "description": "Content is either an explicit content string or URL.",
               "properties": {
+                "append": {
+                  "type": "string",
+                  "description": "String to append to file."
+                },
+                "prepend": {
+                  "type": "string",
+                  "description": "String to prepend to file."
+                },
                 "content": {
                   "type": "string",
-                  "description": "Explicit content string."
+                  "description": "Full content string."
                 },
                 "url": {
                   "type": "string",
