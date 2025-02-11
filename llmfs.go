@@ -199,11 +199,6 @@ func buildOperationQueries(
 	params []map[string]interface{},
 	err error,
 ) {
-	// If matched is empty, there's nothing to build queries for
-	if len(matched) == 0 {
-		return nil, nil, nil
-	}
-
 	// Helper for permission checks
 	checkPerm := func(required string) error {
 		if isOwner {
@@ -244,7 +239,7 @@ func buildOperationQueries(
 			return nil, nil, fmt.Errorf("write permission check failed: %w", err)
 		}
 
-		wq, wp := buildWriteQuery(matched, writeOp, opIndex)
+		wq, wp := buildWriteQuery(op, matched, opIndex)
 		queries = append(queries, wq...)
 		params = append(params, wp...)
 
@@ -387,90 +382,163 @@ SELECT :op_idx AS op_idx, 'delete' AS op_type, changes() AS cnt;
 }
 
 // buildWriteQuery returns parameterized queries for write operations.
-func buildWriteQuery(matched []fileIDPath, w *WriteOperation, opIndex int) ([]string, []map[string]interface{}) {
+func buildWriteQuery(
+	op FilesystemOperation,
+	matched []fileIDPath,
+	opIndex int,
+) ([]string, []map[string]interface{}) {
+
+	w := op.Operations.Write
 	if w == nil {
 		return nil, nil
 	}
 
 	var queries []string
 	var paramsList []map[string]interface{}
-	var blobID *int64 // pointer, to detect if we found a "blob" reference
-	contentStr := ""
 
+	// 0) Compute the full target path.
+	var fullPath string
+	if op.Match.Path.Exactly != "" {
+		if w.RelativePath != "" {
+			fullPath = BuildNewPath(op.Match.Path.Exactly, w.RelativePath)
+		} else {
+			fullPath = op.Match.Path.Exactly
+		}
+		// Run mkdir -p on fullPath so that its parent directories are ensured.
+		parentDirs := getParentDirectories(fullPath)
+		for _, dir := range parentDirs {
+			// This query creates the directory if it does not already exist.
+			mkdirQuery := `
+INSERT OR IGNORE INTO filesystem (
+    path, is_directory, description, content, blob_id, permissions,
+    created_at, updated_at
+)
+VALUES (
+    :path, 1, '', '', NULL, '{}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+);
+`
+			mkdirParams := map[string]interface{}{
+				":path": dir,
+			}
+			queries = append(queries, mkdirQuery)
+			paramsList = append(paramsList, mkdirParams)
+		}
+	}
+
+	// 1) Detect content or blob reference.
+	var blobID *int64
+	contentStr := ""
 	if w.Content != nil {
 		if w.Content.URL != "" && strings.HasPrefix(w.Content.URL, "llmfs://blob/") {
-			// Parse out the ID
-			idStr := strings.TrimPrefix(w.Content.URL, "llmfs://blob/")
-			parsedID, err := strconv.ParseInt(idStr, 10, 64)
-			if err == nil && parsedID > 0 {
-				blobID = &parsedID
+			blobStr := strings.TrimPrefix(w.Content.URL, "llmfs://blob/")
+			parsed, err := strconv.ParseInt(blobStr, 10, 64)
+			if err == nil && parsed > 0 {
+				blobID = &parsed
 			}
 		}
 		if w.Content.Content != "" && blobID == nil {
-			// fallback if not a blob URL
 			contentStr = w.Content.Content
 		}
 	}
 
-	// (A) Update existing matched items.
-	if w.RelativePath == "" {
-		if len(matched) == 0 {
-			return nil, nil
+	// 2) Now, handle file creation/update.
+	// (A) New file creation when no matched row exists and no relative path is used.
+	if len(matched) == 0 && w.RelativePath == "" {
+		isDir := 0
+		if op.Match.Type == "directory" {
+			isDir = 1
 		}
+		insertQ := `
+INSERT INTO filesystem (
+    path, is_directory, description, content, blob_id, permissions,
+    created_at, updated_at
+)
+VALUES (
+    :path, :isdir,
+    CASE WHEN :desc IS NOT NULL THEN :desc ELSE '' END,
+    CASE WHEN :cnt IS NOT NULL THEN :cnt ELSE '' END,
+    :blob_id,
+    '{}',
+    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+);
+`
+		insertParams := map[string]interface{}{
+			":path":    fullPath,
+			":isdir":   isDir,
+			":desc":    NilIfEmpty(w.Description),
+			":cnt":     NilIfEmpty(contentStr),
+			":blob_id": blobID,
+		}
+		lastIDQ := `
+SELECT :op_idx AS op_idx,
+       'new_write' AS op_type,
+       last_insert_rowid() AS new_id;
+`
+		idParams := map[string]interface{}{
+			":op_idx": opIndex,
+		}
+		queries = append(queries, insertQ, lastIDQ)
+		paramsList = append(paramsList, insertParams, idParams)
+	} else if w.RelativePath == "" {
+		// (B) Updating an existing file.
 		placeholders := make([]string, len(matched))
-		idParams := make(map[string]interface{})
+		idParams := map[string]interface{}{}
 		for i, m := range matched {
 			ph := fmt.Sprintf(":id%d", i)
 			placeholders[i] = ph
 			idParams[ph] = m.ID
 		}
-		idPlaceholderList := strings.Join(placeholders, ", ")
-
-		updateQuery := `
+		idList := strings.Join(placeholders, ", ")
+		updateQ := `
 UPDATE filesystem
 SET description = CASE WHEN :desc IS NOT NULL THEN :desc ELSE description END,
-    content     = CASE WHEN :cnt  IS NOT NULL THEN :cnt  ELSE content END,
+    content     = CASE WHEN :cnt IS NOT NULL THEN :cnt ELSE content END,
     blob_id     = CASE WHEN :blob_id IS NOT NULL THEN :blob_id ELSE blob_id END,
     updated_at  = CURRENT_TIMESTAMP
-WHERE id IN (` + idPlaceholderList + `);
+WHERE id IN (` + idList + `);
 `
-		countQuery := `
-SELECT :op_idx AS op_idx, 'write' AS op_type, changes() AS cnt;
-`
-
 		idParams[":desc"] = NilIfEmpty(w.Description)
 		idParams[":cnt"] = NilIfEmpty(contentStr)
 		idParams[":blob_id"] = blobID
 		idParams[":op_idx"] = opIndex
-		queries = append(queries, updateQuery, countQuery)
-		paramsList = append(paramsList, idParams, nil)
-	} else {
-		// (B) Create a new file under each matched directory.
-		if len(matched) == 0 {
-			return nil, nil
-		}
-		for _, m := range matched {
-			newPath := BuildNewPath(m.Path, w.RelativePath)
-			insertQuery := `
-INSERT INTO filesystem (path, is_directory, description, content, blob_id, permissions, created_at, updated_at)
-VALUES (:path, 0, :desc, :cnt, :blob_id, '[]', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
-`
-			countQuery := `
+		countQ := `
 SELECT :op_idx AS op_idx, 'write' AS op_type, changes() AS cnt;
 `
-			paramsIns := map[string]interface{}{
+		queries = append(queries, updateQ, countQ)
+		paramsList = append(paramsList, idParams, map[string]interface{}{":op_idx": opIndex})
+	} else {
+		// (C) Creating new child file(s) in each matched directory.
+		for _, m := range matched {
+			newPath := BuildNewPath(m.Path, w.RelativePath)
+			insertQ := `
+INSERT INTO filesystem (
+    path, is_directory, description, content, blob_id, permissions,
+    created_at, updated_at
+)
+VALUES (
+    :path, 0,
+    CASE WHEN :desc IS NOT NULL THEN :desc ELSE '' END,
+    CASE WHEN :cnt IS NOT NULL THEN :cnt ELSE '' END,
+    :blob_id,
+    '{}',
+    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+);
+`
+			insertParams := map[string]interface{}{
 				":path":    newPath,
 				":desc":    NilIfEmpty(w.Description),
 				":cnt":     NilIfEmpty(contentStr),
 				":blob_id": blobID,
 			}
-			paramsCount := map[string]interface{}{
-				":op_idx": opIndex,
-			}
-			queries = append(queries, insertQuery, countQuery)
-			paramsList = append(paramsList, paramsIns, paramsCount)
+			countQ := `
+SELECT :op_idx AS op_idx, 'write' AS op_type, changes() AS cnt;
+`
+			q2Params := map[string]interface{}{":op_idx": opIndex}
+			queries = append(queries, insertQ, countQ)
+			paramsList = append(paramsList, insertParams, q2Params)
 		}
 	}
+
 	return queries, paramsList
 }
 
@@ -599,6 +667,10 @@ INNER JOIN matched_ids m ON m.id = f.id
 	})
 	if err != nil {
 		return nil, err
+	}
+	if op.Match.Path.Exactly != "" && len(matched) == 0 {
+		// Permission checking should run even if operating on non-existent directory.
+		matched = append(matched, fileIDPath{ID: 0, Path: op.Match.Path.Exactly})
 	}
 	return matched, nil
 }
