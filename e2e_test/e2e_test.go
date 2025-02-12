@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 
@@ -14,22 +13,21 @@ import (
 	"github.com/dropsite-ai/llmfs/config"
 	"github.com/golang-jwt/jwt" // or jwt/v4
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v2"
 )
 
 func TestEndToEndUserJourney(t *testing.T) {
 	// Preliminary check: if the webserver is not up, skip tests.
+	// Clear the cache: go clean -testcache
 	resp, err := http.Get("http://localhost:8080/ok")
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Skip("Webserver not up, skipping tests")
 	}
 	resp.Body.Close()
 
-	rootSecret, err := loadRootJWTSecret("../llmfs.yaml")
-	require.NoError(t, err, "failed to load root JWT secret from llmfs.yaml (or llmfs.yml)")
+	config.Load("../llmfs.yaml")
 
 	// Step 1: Generate a valid root token
-	rootToken, err := generateJWT("root", rootSecret)
+	rootToken, err := generateJWT("root", config.Cfg.JWTSecret)
 	require.NoError(t, err, "failed to generate root token")
 
 	// We will pick a test username, and define a user secret
@@ -175,29 +173,72 @@ func TestEndToEndUserJourney(t *testing.T) {
 	require.Len(t, res, 1)
 	require.Empty(t, res[0].OverallError, "testUser should be able to create a file under /users/testuser")
 
+	uploadReq := map[string]interface{}{
+		"name":       "test_blob.txt",
+		"total_size": 4, // in bytes
+		"mime_type":  "text/plain",
+	}
+	reqBody, err := json.Marshal(uploadReq)
+	require.NoError(t, err, "failed to marshal blob upload request")
+
+	blobResp := doPost(t, "http://localhost:8080/blobs", testUserToken, bytes.NewReader(reqBody), "application/json")
+	defer blobResp.Body.Close()
+	require.Equal(t, http.StatusOK, blobResp.StatusCode, "expected 200 OK from /blobs")
+
+	var blobUploadResp map[string]interface{}
+	require.NoError(t, json.NewDecoder(blobResp.Body).Decode(&blobUploadResp), "failed to decode /blobs response")
+	blobIDFloat, ok := blobUploadResp["blob_id"].(float64)
+	require.True(t, ok, "blob_id should be a number")
+	blobID := int64(blobIDFloat)
+	// (Optional) You could also check the provided upload_url.
+	t.Logf("Initiated blob upload; blobID=%d", blobID)
+
+	//----------------------------------------------------------------------
+	// Step 10: Upload a chunk via POST /blobs/chunk.
+	//----------------------------------------------------------------------
+	chunkData := []byte("data") // 4 bytes of data
+	chunkURL := fmt.Sprintf("http://localhost:8080/blobs/chunk?blob_id=%d&offset=0", blobID)
+	chunkResp := doPost(t, chunkURL, testUserToken, bytes.NewReader(chunkData), "application/octet-stream")
+	defer chunkResp.Body.Close()
+	require.Equal(t, http.StatusOK, chunkResp.StatusCode, "expected 200 OK from /blobs/chunk")
+	var chunkUploadResp map[string]interface{}
+	require.NoError(t, json.NewDecoder(chunkResp.Body).Decode(&chunkUploadResp), "failed to decode /blobs/chunk response")
+	require.Equal(t, "ok", chunkUploadResp["status"], "expected status 'ok' from /blobs/chunk")
+	written, ok := chunkUploadResp["written"].(float64)
+	require.True(t, ok, "written should be a number")
+	require.Equal(t, 4, int(written), "expected 4 bytes written")
+
+	//----------------------------------------------------------------------
+	// Step 11: Download the blob using a signed URL via GET /blobs/signed.
+	//----------------------------------------------------------------------
+	// Use the helper in your code to generate a signed URL (which uses your JWT secret).
+	expires := time.Now().Add(10 * time.Minute)
+	signedPath := llmfs.GenerateSignedBlobURL(blobID, expires)
+	signedURL := "http://localhost:8080" + signedPath
+
+	signedResp := doGET(t, signedURL, testUserToken)
+	defer signedResp.Body.Close()
+	blobContent, err := io.ReadAll(signedResp.Body)
+	require.Equal(t, http.StatusOK, signedResp.StatusCode, "expected 200 OK from /blobs/signed")
+	require.NoError(t, err, "failed to read blob content")
+	require.Equal(t, "data", string(blobContent), "downloaded blob content should match uploaded chunk")
+
+	//----------------------------------------------------------------------
+	// Step 12: Verify the /system endpoint returns the expected keys.
+	//----------------------------------------------------------------------
+	systemResp := doGET(t, "http://localhost:8080/system", testUserToken)
+	defer systemResp.Body.Close()
+	require.Equal(t, http.StatusOK, systemResp.StatusCode, "expected 200 OK from /system")
+	var systemData map[string]interface{}
+	require.NoError(t, json.NewDecoder(systemResp.Body).Decode(&systemData), "failed to decode /system response")
+	require.Contains(t, systemData, "system_instruction", "/system response should contain system_instruction")
+	require.Contains(t, systemData, "function_input_schema", "/system response should contain function_input_schema")
+	require.Contains(t, systemData, "function_output_schema", "/system response should contain function_output_schema")
+
 	//----------------------------------------------------------------------
 	// All done!
 	//----------------------------------------------------------------------
 	t.Log("End-to-end user journey completed successfully.")
-}
-
-//----------------------------------------------------------------------------------
-// Helper function for loading the root JWT secret from llmfs.yml or llmfs.yaml
-//----------------------------------------------------------------------------------
-
-func loadRootJWTSecret(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	var cfg config.Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return "", err
-	}
-	if cfg.JWTSecret == "" {
-		return "", fmt.Errorf("no 'jwt_secret' in %s", path)
-	}
-	return cfg.JWTSecret, nil
 }
 
 //----------------------------------------------------------------------------------
@@ -259,5 +300,19 @@ func doGET(t *testing.T, url, bearerToken string) *http.Response {
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err, "GET request failed")
+	return resp
+}
+
+//----------------------------------------------------------------------------------
+// A trivial POST helper with Bearer auth, to check /blobs or any other POST endpoint
+//----------------------------------------------------------------------------------
+
+func doPost(t *testing.T, url, bearerToken string, body io.Reader, contentType string) *http.Response {
+	req, err := http.NewRequest(http.MethodPost, url, body)
+	require.NoError(t, err, "failed to construct POST request")
+	req.Header.Set("Authorization", "Bearer "+bearerToken)
+	req.Header.Set("Content-Type", contentType)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err, "POST request failed")
 	return resp
 }
