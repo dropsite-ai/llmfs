@@ -1,156 +1,177 @@
 {
   "name": "perform_filesystem_operations",
-  "description": "Perform multiple filesystem operations at once, in a single transaction.",
+  "description": "Perform multiple filesystem operations at once, in a single transaction. Each item in the array represents a set of match filters plus a list of operations to apply to all matched files/directories.",
   "type": "array",
   "items": {
     "type": "object",
-    "description": "A filesystem operation (list, read, delete, or write).",
+    "description": "A group of filesystem operations on one or more matching files or directories.",
     "properties": {
       "match": {
         "type": "object",
-        "description": "File or directory match strings.",
+        "description": "Defines filters to match target files or directories. All specified fields must match (logical AND).",
         "properties": {
           "path": {
             "type": "object",
-            "description": "Path match strings.",
+            "description": "Match the path (full or partial) of files/directories.",
             "properties": {
+              "exactly": {
+                "type": "string",
+                "description": "Match items whose path contains this substring anywhere (case-sensitive)."
+              },
               "contains": {
                 "type": "string",
-                "description": "Match string anywhere in path."
+                "description": "Match items whose path contains this substring anywhere (case-sensitive)."
               },
               "begins_with": {
                 "type": "string",
-                "description": "Match string at beginning of path."
+                "description": "Match items whose path begins with this string (case-sensitive)."
               },
               "ends_with": {
                 "type": "string",
-                "description": "Match string at end of path."
+                "description": "Match items whose path ends with this string (case-sensitive)."
               }
-            }
+            },
+            "additionalProperties": false
           },
           "description": {
             "type": "object",
-            "description": "Description match.",
+            "description": "Match based on the textual description of a file or directory.",
             "properties": {
               "contains": {
                 "type": "string",
-                "description": "Match string anywhere in description."
+                "description": "Match items whose description contains this substring (case-sensitive)."
               }
-            }
+            },
+            "additionalProperties": false
           },
           "content": {
             "type": "object",
-            "description": "Content match.",
+            "description": "Match based on the content of files. (Ignored for directories.)",
             "properties": {
               "contains": {
                 "type": "string",
-                "description": "Match string anywhere in content."
+                "description": "Match files whose content contains this substring (case-sensitive)."
               }
-            }
+            },
+            "additionalProperties": false
           },
           "type": {
             "type": "string",
-            "description": "Match only a certain type.",
+            "description": "Restrict matches to a specific item type: file or directory.",
             "enum": [
               "file",
               "directory"
             ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "operations": {
-        "list": {
-          "type": "boolean",
-          "description": "Read metadata of results (is_directory, description, created_at, updated_at)."
-        },
-        "read": {
-          "type": "boolean",
-          "description": "Read metadata and content of results."
-        },
-        "delete": {
-          "type": "boolean",
-          "description": "Delete all files or directories in results."
-        },
-        "write": {
+        "type": "array",
+        "description": "List of operations to perform on every item matched by the 'match' filters (in the order provided).",
+        "items": {
           "type": "object",
+          "description": "An individual filesystem operation, which may optionally target a relative subpath.",
           "properties": {
+            "operation": {
+              "type": "string",
+              "description": "Type of filesystem operation to perform.",
+              "enum": [
+                "list",
+                "read",
+                "delete",
+                "write"
+              ]
+            },
             "relative_path": {
               "type": "string",
-              "description": "If specified, a new file at this path will be created relative to every matching directory. If not specified, every matching file will be updated."
+              "description": "Optional subpath or file name relative to the matched item. For example, if the matched item is a directory, use this to target a file inside it. If the matched item is a file, 'relative_path' could refer to a sibling/child resource."
+            },
+            "type": {
+              "type": "string",
+              "description": "Optional item type for the relative_path: file or directory.",
+              "enum": [
+                "file",
+                "directory"
+              ]
             },
             "description": {
               "type": "string",
-              "description": "Description of file or directory."
+              "description": "For a 'write' operation: sets or updates the description of the newly created or updated file/directory."
             },
             "content": {
               "type": "object",
-              "description": "Content is either an explicit content string or URL.",
+              "description": "For a 'write' operation on files: specify how to set or modify the file content. Ignored for directories unless your system supports directory-level content.",
               "properties": {
                 "append": {
                   "type": "string",
-                  "description": "String to append to file."
+                  "description": "String to append to the existing content. Used if the file already exists."
                 },
                 "prepend": {
                   "type": "string",
-                  "description": "String to prepend to file."
+                  "description": "String to prepend to the existing content. Used if the file already exists."
                 },
                 "content": {
                   "type": "string",
-                  "description": "Full content string."
+                  "description": "Replace the entire content of the file with this string."
                 },
                 "url": {
                   "type": "string",
-                  "description": "URL of content."
+                  "description": "Download content from this URL and use it to replace the file content."
                 }
-              }
+              },
+              "additionalProperties": false
             },
             "permissions": {
               "type": "object",
-              "description": "Permission for file or directory, by username. The key is the username, the value is a string with any one of these characters in it: 'wrld' (write, read, list, delete).",
-              "properties": {
-                "permission": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  }
-                }
+              "description": "For a 'write' operation: set or update permissions on the file/directory. Keys are usernames; values are strings containing any of 'w' (write), 'r' (read), 'l' (list), or 'd' (delete).",
+              "additionalProperties": {
+                "type": "string",
+                "description": "Permission string, e.g. 'wr' for write+read, 'wrld' for full access."
               }
+            },
+            "pagination": {
+              "type": "object",
+              "description": "For 'list' or 'read' operations that return multiple results. Controls which page of results is returned and how many items per page.",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "description": "Page number (starting at 1)."
+                },
+                "limit": {
+                  "type": "integer",
+                  "description": "Maximum items per page."
+                }
+              },
+              "additionalProperties": false
+            },
+            "sort": {
+              "type": "object",
+              "description": "For 'list' or 'read' operations that return multiple results. Controls how results are sorted.",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "description": "Name of the field to sort by, e.g. 'name', 'created_at', 'updated_at'."
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "asc",
+                    "desc"
+                  ],
+                  "description": "Sort direction: ascending or descending."
+                }
+              },
+              "additionalProperties": false
             }
-          }
-        }
-      },
-      "pagination": {
-        "type": "object",
-        "description": "Pagination options.",
-        "properties": {
-          "page": {
-            "type": "integer",
-            "description": "Page number (starting at 1)."
           },
-          "limit": {
-            "type": "integer",
-            "description": "Max items per page."
-          }
-        }
-      },
-      "sort": {
-        "type": "object",
-        "description": "Sort options.",
-        "properties": {
-          "field": {
-            "type": "string",
-            "description": "Field to sort by (e.g. 'name', 'created_at', 'updated_at)."
-          },
-          "direction": {
-            "type": "string",
-            "enum": [
-              "asc",
-              "desc"
-            ],
-            "description": "Sort direction."
-          }
+          "required": [
+            "operation"
+          ],
+          "additionalProperties": false
         }
       }
-    }
+    },
+    "additionalProperties": false
   }
 }

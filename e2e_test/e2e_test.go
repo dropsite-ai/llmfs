@@ -32,7 +32,6 @@ func TestEndToEndUserJourney(t *testing.T) {
 	//----------------------------------------------------------------------
 	// Step 2: As root, create /llmfs/users/testuser.json with {"jwt_secret":"..."}
 	//----------------------------------------------------------------------
-
 	opsCreateUserFile := []llmfs.FilesystemOperation{
 		{
 			Match: llmfs.MatchCriteria{
@@ -41,8 +40,9 @@ func TestEndToEndUserJourney(t *testing.T) {
 				},
 				Type: "file", // we’re effectively creating a file
 			},
-			Operations: llmfs.Operations{
-				Write: &llmfs.WriteOperation{
+			Operations: []llmfs.SingleOperation{
+				{
+					Operation: "write",
 					Content: &llmfs.ContentPayload{
 						Content: fmt.Sprintf(`{"jwt_secret":%q}`, testUserSecret),
 					},
@@ -52,7 +52,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 	}
 	res := perform(t, rootToken, opsCreateUserFile)
 	require.Len(t, res, 1)
-	require.Empty(t, res[0].Error, "expected to successfully create /llmfs/users/testuser.json")
+	require.Empty(t, res[0].OverallError, "expected to successfully create /llmfs/users/testuser.json")
 
 	//----------------------------------------------------------------------
 	// Step 3: As root, create /users/testuser directory with wrld perms for testUser
@@ -65,9 +65,11 @@ func TestEndToEndUserJourney(t *testing.T) {
 				},
 				Type: "directory",
 			},
-			Operations: llmfs.Operations{
-				Write: &llmfs.WriteOperation{
-					RelativePath: testUser, // creates "/users/testuser"
+			Operations: []llmfs.SingleOperation{
+				{
+					Operation:    "write",
+					RelativePath: testUser,    // creates "/users/testuser"
+					Type:         "directory", // this ensures /users/testuser is written as a directory!
 					Permissions:  map[string]string{testUser: "wrld"},
 				},
 			},
@@ -75,7 +77,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 	}
 	res = perform(t, rootToken, opsCreateUserDir)
 	require.Len(t, res, 1)
-	require.Empty(t, res[0].Error, "expected to successfully create /users/testuser directory")
+	require.Empty(t, res[0].OverallError, "expected to successfully create /users/testuser directory")
 
 	//----------------------------------------------------------------------
 	// Step 4: Generate a JWT token for testUser using their new secret
@@ -106,19 +108,19 @@ func TestEndToEndUserJourney(t *testing.T) {
 					Exactly: "/",
 				},
 			},
-			Operations: llmfs.Operations{
-				List: true,
+			Operations: []llmfs.SingleOperation{
+				{Operation: "list"},
 			},
 		},
 	}
 	res = perform(t, testUserToken, opsBadPermissions)
 	require.Len(t, res, 1)
-	require.Contains(t, res[0].Error, "permission denied", "testUser should not have perms on /")
+	require.Contains(t, res[0].SubOpResults[0].Error, "permission denied", "testUser should not have perms on /")
 
 	opsBadPermissions[0].Match.Path.Exactly = "/users"
 	res = perform(t, testUserToken, opsBadPermissions)
 	require.Len(t, res, 1)
-	require.Contains(t, res[0].Error, "permission denied", "testUser should not have perms on /users")
+	require.Contains(t, res[0].SubOpResults[0].Error, "permission denied", "testUser should not have perms on /users")
 
 	//----------------------------------------------------------------------
 	// Step 7: Check testUser *can* read/list/write in "/users/testuser"
@@ -131,14 +133,14 @@ func TestEndToEndUserJourney(t *testing.T) {
 				},
 				Type: "directory",
 			},
-			Operations: llmfs.Operations{
-				List: true,
+			Operations: []llmfs.SingleOperation{
+				{Operation: "list"},
 			},
 		},
 	}
 	res = perform(t, testUserToken, opsGoodPermissions)
 	require.Len(t, res, 1)
-	require.Empty(t, res[0].Error, "testUser should have no error listing their own directory")
+	require.Empty(t, res[0].OverallError, "testUser should have no error listing their own directory")
 
 	//----------------------------------------------------------------------
 	// Step 8: Test writing a file in "/users/testuser"
@@ -151,8 +153,9 @@ func TestEndToEndUserJourney(t *testing.T) {
 				},
 				Type: "directory",
 			},
-			Operations: llmfs.Operations{
-				Write: &llmfs.WriteOperation{
+			Operations: []llmfs.SingleOperation{
+				{
+					Operation:    "write",
 					RelativePath: "notes.txt",
 					Content: &llmfs.ContentPayload{
 						Content: "hello from testUser",
@@ -163,7 +166,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 	}
 	res = perform(t, testUserToken, opsWriteFile)
 	require.Len(t, res, 1)
-	require.Empty(t, res[0].Error, "testUser should be able to create a file under /users/testuser")
+	require.Empty(t, res[0].OverallError, "testUser should be able to create a file under /users/testuser")
 
 	//----------------------------------------------------------------------
 	// All done!
@@ -204,8 +207,8 @@ func generateJWT(username, secret string) (string, error) {
 }
 
 //----------------------------------------------------------------------------------
-//  A helper to call POST /perform with an array of llmfs.FilesystemOperation
-//  and parse back the []llmfs.OperationResult
+// A helper to call POST /perform with an array of llmfs.FilesystemOperation
+// and parse back the []llmfs.OperationResult
 //----------------------------------------------------------------------------------
 
 func perform(t *testing.T, bearerToken string, ops []llmfs.FilesystemOperation) []llmfs.OperationResult {
@@ -223,11 +226,11 @@ func perform(t *testing.T, bearerToken string, ops []llmfs.FilesystemOperation) 
 	require.NoError(t, err, "POST /perform request failed")
 	defer resp.Body.Close()
 
-	require.Equal(t, http.StatusOK, resp.StatusCode,
-		"expected 200 from /perform, got %d", resp.StatusCode)
-
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err, "failed to read /perform response")
+
+	require.Equal(t, http.StatusOK, resp.StatusCode,
+		"expected 200 from /perform, got %d", resp.StatusCode)
 
 	var results []llmfs.OperationResult
 	err = json.Unmarshal(body, &results)

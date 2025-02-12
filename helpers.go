@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/dropsite-ai/llmfs/config"
@@ -111,34 +110,4 @@ func NilIfEmpty(s string) interface{} {
 		return nil
 	}
 	return s
-}
-
-// getParentDirectories returns all parent directories (from top down) for a given absolute file path.
-// For example, for "/a/b/c.txt" it returns ["/a", "/a/b"].
-// Now it always includes "/" even for paths like "/file.txt".
-func getParentDirectories(path string) []string {
-	var dirs []string
-
-	// Remove trailing slash (except if the path is exactly "/")
-	if path != "/" && path[len(path)-1] == '/' {
-		path = path[:len(path)-1]
-	}
-
-	// Always include the root directory.
-	dirs = append(dirs, "/")
-
-	// If the path is "/", we already have it.
-	if path == "/" {
-		return dirs
-	}
-
-	// Split the path into components.
-	parts := strings.Split(path, "/")
-	cum := ""
-	// Start at index 1 (skip the empty element due to the leading "/")
-	for i := 1; i < len(parts)-1; i++ {
-		cum += "/" + parts[i]
-		dirs = append(dirs, cum)
-	}
-	return dirs
 }

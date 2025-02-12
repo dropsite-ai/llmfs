@@ -1,81 +1,102 @@
 {
   "title": "perform_filesystem_operations_response",
-  "description": "The response from PerformFilesystemOperations is an array of file operation results.",
+  "description": "The response from PerformFilesystemOperations is an array of operation results (one per top-level request item). Each operation may contain multiple sub-operations (list, read, delete, write).",
   "type": "array",
   "items": {
     "type": "object",
-    "title": "File operation results.",
+    "title": "Operation result",
     "properties": {
       "operation_index": {
         "type": "integer",
-        "description": "Zero-based index of the operation in the request array"
+        "description": "Zero-based index of this operation in the original request array."
       },
       "error": {
         "type": "string",
-        "description": "An error message if the operation failed"
+        "description": "If set, indicates an error for the entire operation block (e.g., transaction failure)."
       },
-      "results": {
+      "sub_op_results": {
         "type": "array",
-        "description": "File records returned from list/read operations",
+        "description": "An array of sub-operation results. Each sub-operation corresponds to one item in the 'operations' array in the request.",
         "items": {
           "type": "object",
-          "title": "File record result.",
+          "title": "Sub-operation result",
           "properties": {
-            "id": {
+            "sub_op_index": {
               "type": "integer",
-              "description": "Unique ID of the file/directory"
+              "description": "Zero-based index of the sub-operation within the operations array for this top-level item."
             },
-            "path": {
+            "error": {
               "type": "string",
-              "description": "The filesystem path"
+              "description": "An error message if the sub-operation failed (e.g., permission denied)."
             },
-            "is_directory": {
-              "type": "boolean",
-              "description": "True if path is a directory, false if a file"
+            "results": {
+              "type": "array",
+              "description": "File records returned from a 'list' or 'read' sub-operation (ignored for 'delete' or 'write').",
+              "items": {
+                "type": "object",
+                "title": "File record result",
+                "properties": {
+                  "id": {
+                    "type": "integer",
+                    "description": "Unique ID of the file or directory."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "The filesystem path."
+                  },
+                  "is_directory": {
+                    "type": "boolean",
+                    "description": "True if this path is a directory, false if a file."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Optional textual description of the file or directory."
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "File content if 'read' was requested and permitted; otherwise omitted."
+                  },
+                  "blob_id": {
+                    "type": "integer",
+                    "description": "Blob ID if this file references an external blob row (otherwise omitted)."
+                  },
+                  "blob_url": {
+                    "type": "string",
+                    "description": "A signed URL to fetch blob contents, if blob_id is present."
+                  },
+                  "created_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Creation time in YYYY-MM-DD HH:MM:SS format."
+                  },
+                  "updated_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Last update time in YYYY-MM-DD HH:MM:SS format."
+                  }
+                },
+                "required": [
+                  "id",
+                  "path",
+                  "is_directory",
+                  "created_at",
+                  "updated_at"
+                ]
+              }
             },
-            "description": {
-              "type": "string",
-              "description": "Optional description of the file/directory"
-            },
-            "content": {
-              "type": "string",
-              "description": "The text content (if read allowed), otherwise omitted"
-            },
-            "blob_id": {
+            "write_count": {
               "type": "integer",
-              "description": "Blob ID if this file references a BLOB row (otherwise omitted)"
+              "description": "Number of files or directories created or updated by this sub-operation."
             },
-            "blob_url": {
-              "type": "string",
-              "description": "A signed URL to fetch blob contents, if blob_id is present"
-            },
-            "created_at": {
-              "type": "string",
-              "format": "date-time",
-              "description": "Time created in YYYY-MM-DD HH:MM:SS format"
-            },
-            "updated_at": {
-              "type": "string",
-              "format": "date-time",
-              "description": "Time last updated in YYYY-MM-DD HH:MM:SS format"
+            "delete_count": {
+              "type": "integer",
+              "description": "Number of files or directories deleted by this sub-operation."
             }
           },
           "required": [
-            "id",
-            "path",
-            "is_directory",
-            "created_at",
-            "updated_at"
+            "sub_op_index"
           ]
         }
-      },
-      "write_count": {
-        "type": "integer",
-        "description": "Number of files or directories created/updated"
-      },
-      "delete_count": {
-        "type": "integer",
-        "description": "Number of files or directories deleted"
       }
     },
     "required": [

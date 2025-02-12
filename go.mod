@@ -3,7 +3,7 @@ module github.com/dropsite-ai/llmfs
 go 1.21.5
 
 require (
-	github.com/dropsite-ai/sqliteutils v0.0.0-20250210053455-35d6ac81f3e7
+	github.com/dropsite-ai/sqliteutils v0.0.0-20250211233053-69fac811e93f
 	github.com/fatih/color v1.18.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/stretchr/testify v1.10.0

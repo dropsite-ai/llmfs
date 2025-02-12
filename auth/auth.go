@@ -68,19 +68,41 @@ func verifyJWT(tokenStr, secret string) (string, error) {
 func getUserSecret(username string) (string, error) {
 	ctx := context.Background()
 	userPath := fmt.Sprintf("/llmfs/users/%s.json", username)
-	operations, err := llmfs.PerformFilesystemOperations(ctx, config.Cfg.OwnerUser, config.Cfg.OwnerUser, []llmfs.FilesystemOperation{
+
+	// Build a single FilesystemOperation with a 'read' sub-operation
+	fsOps := []llmfs.FilesystemOperation{
 		{
-			Operations: llmfs.Operations{Read: true},
 			Match: llmfs.MatchCriteria{
 				Type: "file",
-				Path: llmfs.PathCriteria{Exactly: userPath},
+				Path: llmfs.PathCriteria{
+					Exactly: userPath,
+				},
+			},
+			Operations: []llmfs.SingleOperation{
+				{
+					Operation: "read",
+				},
 			},
 		},
-	})
+	}
+
+	results, err := llmfs.PerformFilesystemOperations(ctx, config.Cfg.OwnerUser, config.Cfg.OwnerUser, fsOps)
 	if err != nil {
 		return "", err
 	}
-	secretJSON := operations[0].Results[0].Content
+	if len(results) == 0 || len(results[0].SubOpResults) == 0 {
+		return "", fmt.Errorf("no results returned when reading user file %s", userPath)
+	}
+	subOpRes := results[0].SubOpResults[0]
+	if len(subOpRes.Results) == 0 {
+		// Possibly means file doesn't exist or no permission
+		if subOpRes.Error != "" {
+			return "", fmt.Errorf("error reading user file %s: %s", userPath, subOpRes.Error)
+		}
+		return "", fmt.Errorf("user file %s is empty or not found", userPath)
+	}
+
+	secretJSON := subOpRes.Results[0].Content
 	var data struct {
 		JWTSecret string `json:"jwt_secret"`
 	}
@@ -100,14 +122,13 @@ func getUserSecret(username string) (string, error) {
 func authenticate(tokenStr string) (string, error) {
 	tokenStr = trimBearer(tokenStr)
 
-	// Try to verify using the config secret.
+	// 1) Try to verify using the config secret.
 	if username, err := verifyJWT(tokenStr, config.Cfg.JWTSecret); err == nil && username == "root" {
 		return "root", nil
 	}
 
-	// Not root.
+	// 2) Not root => check external auth if configured
 	if config.Cfg.AuthURL != "" {
-		// Forward the request to the external auth endpoint.
 		client := &http.Client{Timeout: 5 * time.Second}
 		req, err := http.NewRequest("GET", config.Cfg.AuthURL, nil)
 		if err != nil {
@@ -134,8 +155,8 @@ func authenticate(tokenStr string) (string, error) {
 		return result.Username, nil
 	}
 
-	// No external auth URL provided; try local authentication.
-	// Extract username from the token without verifying.
+	// 3) No external auth => local authentication with per-user secret.
+	//    Extract the username from the token *without verifying* first.
 	parser := new(jwt.Parser)
 	token, _, err := parser.ParseUnverified(tokenStr, jwt.MapClaims{})
 	if err != nil {
@@ -150,13 +171,13 @@ func authenticate(tokenStr string) (string, error) {
 		return "", fmt.Errorf("username claim missing")
 	}
 
-	// Look up the user file in the virtual filesystem.
+	// 4) Load that user’s JWT secret from the fs
 	userSecret, err := getUserSecret(usernameClaim)
 	if err != nil {
 		return "", fmt.Errorf("failed to get user secret: %v", err)
 	}
 
-	// Verify the token using the user's secret.
+	// 5) Verify token using user-specific secret
 	verifiedUsername, err := verifyJWT(tokenStr, userSecret)
 	if err != nil {
 		return "", fmt.Errorf("failed to verify token with user secret: %v", err)

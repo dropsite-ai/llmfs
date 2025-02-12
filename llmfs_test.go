@@ -2,6 +2,7 @@ package llmfs_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,18 +38,18 @@ func insertTestFile(t *testing.T, ctx context.Context,
 ) {
 	query := `
 INSERT INTO filesystem (path, is_directory, description, content, permissions, created_at, updated_at)
-VALUES ($path, $is_directory, $desc, $content, $perm, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+VALUES (:path, :is_directory, :desc, :content, :perm, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 `
 	isDirVal := 0
 	if isDirectory {
 		isDirVal = 1
 	}
 	params := map[string]interface{}{
-		"$path":         path,
-		"$is_directory": isDirVal,
-		"$desc":         description,
-		"$content":      content,
-		"$perm":         permissions,
+		":path":         path,
+		":is_directory": isDirVal,
+		":desc":         description,
+		":content":      content,
+		":perm":         permissions,
 	}
 	err := exec.Exec(ctx, query, params, nil)
 	require.NoError(t, err, "failed to insert test file record")
@@ -121,7 +122,7 @@ func TestHelperFunctions(t *testing.T) {
 	})
 
 	t.Run("EscapeSingleQuotes", func(t *testing.T) {
-		s := llmfs.EscapeSingleQuotes("John's doc")
+		s := EscapeSingleQuotes("John's doc")
 		require.Equal(t, "John''s doc", s)
 	})
 
@@ -149,18 +150,24 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 						Path: llmfs.PathCriteria{Contains: "file1"},
 						Type: "file",
 					},
-					Operations: llmfs.Operations{
-						List: true,
+					Operations: []llmfs.SingleOperation{
+						{Operation: "list"},
 					},
 				},
 			},
 			checkFn: func(t *testing.T, opsResults []llmfs.OperationResult) {
 				require.Len(t, opsResults, 1)
-				op := opsResults[0]
-				require.Empty(t, op.Error)
-				require.Len(t, op.Results, 1)
-				assert.Equal(t, "/topdir/file1.txt", op.Results[0].Path)
-				assert.Empty(t, op.Results[0].Content, "List-only should not return content")
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
+
+				// We have exactly 1 sub-op
+				require.Len(t, topRes.SubOpResults, 1)
+				subRes := topRes.SubOpResults[0]
+				require.Empty(t, subRes.Error)
+
+				require.Len(t, subRes.Results, 1)
+				assert.Equal(t, "/topdir/file1.txt", subRes.Results[0].Path)
+				assert.Empty(t, subRes.Results[0].Content, "List-only should not return content")
 			},
 		},
 		{
@@ -171,40 +178,54 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 						Path: llmfs.PathCriteria{Contains: "file1"},
 						Type: "file",
 					},
-					Operations: llmfs.Operations{
-						Read: true,
+					Operations: []llmfs.SingleOperation{
+						{Operation: "read"},
 					},
 				},
 			},
 			checkFn: func(t *testing.T, opsResults []llmfs.OperationResult) {
 				require.Len(t, opsResults, 1)
-				op := opsResults[0]
-				require.Empty(t, op.Error)
-				require.Len(t, op.Results, 1)
-				assert.Equal(t, "hello world", op.Results[0].Content)
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
+
+				require.Len(t, topRes.SubOpResults, 1)
+				subRes := topRes.SubOpResults[0]
+				require.Empty(t, subRes.Error)
+
+				require.Len(t, subRes.Results, 1)
+				assert.Equal(t, "hello world", subRes.Results[0].Content)
 			},
 		},
 		{
-			name: "List+Read on file1 => expect 2 results",
+			name: "List+Read on file1 => expect 2 sub-ops",
 			operations: []llmfs.FilesystemOperation{
 				{
 					Match: llmfs.MatchCriteria{
 						Path: llmfs.PathCriteria{Contains: "file1"},
 						Type: "file",
 					},
-					Operations: llmfs.Operations{
-						List: true,
-						Read: true,
+					Operations: []llmfs.SingleOperation{
+						{Operation: "list"},
+						{Operation: "read"},
 					},
 				},
 			},
 			checkFn: func(t *testing.T, opsResults []llmfs.OperationResult) {
 				require.Len(t, opsResults, 1)
-				op := opsResults[0]
-				require.Empty(t, op.Error)
-				require.Len(t, op.Results, 2, "list + read yields two rows for the same file")
-				assert.Empty(t, op.Results[0].Content, "first row is from 'list'")
-				assert.Equal(t, "hello world", op.Results[1].Content, "second row is from 'read'")
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
+
+				require.Len(t, topRes.SubOpResults, 2, "list + read => 2 sub-ops")
+
+				listSub := topRes.SubOpResults[0]
+				readSub := topRes.SubOpResults[1]
+				require.Empty(t, listSub.Error)
+				require.Empty(t, readSub.Error)
+
+				require.Len(t, listSub.Results, 1, "list should return 1 matching file")
+				require.Len(t, readSub.Results, 1, "read should return 1 matching file")
+				assert.Empty(t, listSub.Results[0].Content, "list doesn't include content")
+				assert.Equal(t, "hello world", readSub.Results[0].Content, "read does include content")
 			},
 		},
 		{
@@ -217,23 +238,29 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 							Exactly: "/topdir",
 						},
 					},
-					Operations: llmfs.Operations{
-						Write: &llmfs.WriteOperation{
+					Operations: []llmfs.SingleOperation{
+						{
+							Operation:    "write",
 							RelativePath: "newfile.txt",
 							Description:  "Newly created file",
 							Content: &llmfs.ContentPayload{
 								Content: "some new content",
 							},
-							Permissions: map[string]string{"bob": "r"}, // Example permission
+							Permissions: map[string]string{"bob": "r"},
 						},
 					},
 				},
 			},
 			checkFn: func(t *testing.T, opsResults []llmfs.OperationResult) {
 				require.Len(t, opsResults, 1)
-				op := opsResults[0]
-				require.Empty(t, op.Error)
-				assert.Equal(t, int64(1), op.WriteCount, "should have created exactly 1 file")
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
+
+				require.Len(t, topRes.SubOpResults, 1)
+				subRes := topRes.SubOpResults[0]
+				require.Empty(t, subRes.Error)
+
+				assert.Equal(t, int64(1), subRes.WriteCount, "should have created exactly 1 file")
 			},
 		},
 		{
@@ -244,44 +271,61 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 						Path: llmfs.PathCriteria{Contains: "file1"},
 						Type: "file",
 					},
-					Operations: llmfs.Operations{
-						Delete: true,
+					Operations: []llmfs.SingleOperation{
+						{Operation: "delete"},
 					},
 				},
 			},
 			checkFn: func(t *testing.T, opsResults []llmfs.OperationResult) {
 				require.Len(t, opsResults, 1)
-				op := opsResults[0]
-				require.Empty(t, op.Error)
-				assert.Equal(t, int64(1), op.DeleteCount, "should delete exactly 1 file")
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
+
+				require.Len(t, topRes.SubOpResults, 1)
+				subRes := topRes.SubOpResults[0]
+				require.Empty(t, subRes.Error)
+
+				assert.Equal(t, int64(1), subRes.DeleteCount, "should delete exactly 1 file")
 			},
 		},
 		{
-			name: "Write + Delete in one operation",
+			name: "Write + Delete in one operation (2 sub-ops)",
 			operations: []llmfs.FilesystemOperation{
 				{
 					Match: llmfs.MatchCriteria{
 						Path: llmfs.PathCriteria{Contains: "topdir"},
 						Type: "directory",
 					},
-					Operations: llmfs.Operations{
-						Write: &llmfs.WriteOperation{
+					Operations: []llmfs.SingleOperation{
+						{
+							Operation:    "write",
 							RelativePath: "tempfile.txt",
 							Description:  "File created then quickly removed",
 							Content: &llmfs.ContentPayload{
 								Content: "Some ephemeral content",
 							},
 						},
-						Delete: true,
+						{
+							Operation: "delete",
+						},
 					},
 				},
 			},
 			checkFn: func(t *testing.T, opsResults []llmfs.OperationResult) {
 				require.Len(t, opsResults, 1)
-				op := opsResults[0]
-				require.Empty(t, op.Error)
-				assert.Equal(t, int64(1), op.WriteCount, "expected 1 new file")
-				assert.True(t, op.DeleteCount >= 1, "expect at least 1 item to be deleted")
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
+
+				require.Len(t, topRes.SubOpResults, 2)
+				writeSub := topRes.SubOpResults[0]
+				delSub := topRes.SubOpResults[1]
+
+				require.Empty(t, writeSub.Error)
+				require.Empty(t, delSub.Error)
+
+				assert.Equal(t, int64(1), writeSub.WriteCount, "expected 1 new file")
+				// Could be 1 or more items deleted
+				assert.True(t, delSub.DeleteCount >= 1, "expect at least 1 item to be deleted")
 			},
 		},
 		{
@@ -292,9 +336,10 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 						Path: llmfs.PathCriteria{Contains: "topdir"},
 						Type: "directory",
 					},
-					Operations: llmfs.Operations{
-						List: true,
-						Write: &llmfs.WriteOperation{
+					Operations: []llmfs.SingleOperation{
+						{Operation: "list"},
+						{
+							Operation:    "write",
 							RelativePath: "anotherfile.txt",
 							Description:  "Example file created in the same op as List",
 							Content: &llmfs.ContentPayload{
@@ -306,13 +351,20 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 			},
 			checkFn: func(t *testing.T, opsResults []llmfs.OperationResult) {
 				require.Len(t, opsResults, 1)
-				op := opsResults[0]
-				require.Empty(t, op.Error)
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
 
-				require.NotEmpty(t, op.Results, "List should return something")
-				assert.Empty(t, op.Results[0].Content, "List doesn't include content")
+				require.Len(t, topRes.SubOpResults, 2)
+				listSub := topRes.SubOpResults[0]
+				writeSub := topRes.SubOpResults[1]
 
-				assert.Equal(t, int64(1), op.WriteCount, "one file created")
+				require.Empty(t, listSub.Error)
+				require.Empty(t, writeSub.Error)
+
+				require.NotEmpty(t, listSub.Results, "List should return something")
+				assert.Empty(t, listSub.Results[0].Content, "List doesn't include content")
+
+				assert.Equal(t, int64(1), writeSub.WriteCount, "one file created")
 			},
 		},
 		{
@@ -323,26 +375,35 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 						Path: llmfs.PathCriteria{Contains: "file1"},
 						Type: "file",
 					},
-					Operations: llmfs.Operations{
-						List:   true,
-						Read:   true,
-						Delete: true,
+					Operations: []llmfs.SingleOperation{
+						{Operation: "list"},
+						{Operation: "read"},
+						{Operation: "delete"},
 					},
 				},
 			},
 			checkFn: func(t *testing.T, opsResults []llmfs.OperationResult) {
 				require.Len(t, opsResults, 1)
-				op := opsResults[0]
-				require.Empty(t, op.Error)
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
 
-				require.Len(t, op.Results, 2, "List + Read produce 2 rows for the same file")
-				assert.Empty(t, op.Results[0].Content, "the first row is list info only")
-				assert.NotEmpty(t, op.Results[1].Content, "the second row is read content")
-				assert.Equal(t, int64(1), op.DeleteCount, "deleted exactly 1 file")
+				require.Len(t, topRes.SubOpResults, 3)
+				listSub := topRes.SubOpResults[0]
+				readSub := topRes.SubOpResults[1]
+				delSub := topRes.SubOpResults[2]
+
+				require.Empty(t, listSub.Error)
+				require.Empty(t, readSub.Error)
+				require.Empty(t, delSub.Error)
+
+				require.Len(t, listSub.Results, 1, "List sub-op should have 1 result for file1")
+				require.Len(t, readSub.Results, 1, "Read sub-op should have 1 result for file1")
+				assert.Empty(t, listSub.Results[0].Content, "the 'list' row is metadata only")
+				assert.NotEmpty(t, readSub.Results[0].Content, "the 'read' row includes content")
+
+				assert.Equal(t, int64(1), delSub.DeleteCount, "deleted exactly 1 file")
 			},
 		},
-		// (We exclude "No matches scenario" and "Grant+Revoke" from here
-		//  because we have dedicated tests for those below.)
 		{
 			name: "Pagination test: limit to 1 result per page",
 			operations: []llmfs.FilesystemOperation{
@@ -351,24 +412,24 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 						Path: llmfs.PathCriteria{Contains: "file"},
 						Type: "file",
 					},
-					Pagination: &llmfs.Pagination{
-						Page:  1,
-						Limit: 1,
-					},
-					Sort: &llmfs.Sort{
-						Field:     "path",
-						Direction: "asc",
-					},
-					Operations: llmfs.Operations{
-						List: true,
+					Operations: []llmfs.SingleOperation{
+						{
+							Operation:  "list",
+							Pagination: &llmfs.Pagination{Page: 1, Limit: 1},
+							Sort:       &llmfs.Sort{Field: "path", Direction: "asc"},
+						},
 					},
 				},
 			},
 			checkFn: func(t *testing.T, opsResults []llmfs.OperationResult) {
 				require.Len(t, opsResults, 1)
-				op := opsResults[0]
-				require.Empty(t, op.Error)
-				require.Len(t, op.Results, 1, "limit=1 => exactly 1 item returned")
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
+
+				require.Len(t, topRes.SubOpResults, 1)
+				subRes := topRes.SubOpResults[0]
+				require.Empty(t, subRes.Error)
+				require.Len(t, subRes.Results, 1, "limit=1 => exactly 1 item returned")
 			},
 		},
 	}
@@ -406,11 +467,14 @@ func TestNoMatches(t *testing.T) {
 			Match: llmfs.MatchCriteria{
 				Path: llmfs.PathCriteria{Contains: "nonexistent.txt"},
 			},
-			Operations: llmfs.Operations{
-				List:   true,
-				Read:   true,
-				Write:  &llmfs.WriteOperation{Description: "won't happen"},
-				Delete: true,
+			Operations: []llmfs.SingleOperation{
+				{Operation: "list"},
+				{Operation: "read"},
+				{
+					Operation:   "write",
+					Description: "won't happen",
+				},
+				{Operation: "delete"},
 			},
 		},
 	}
@@ -418,10 +482,17 @@ func TestNoMatches(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, results, 1)
-	assert.Empty(t, results[0].Error, "no error expected even with no matches")
-	assert.Empty(t, results[0].Results, "no matched items")
-	assert.Equal(t, int64(0), results[0].DeleteCount)
-	assert.Equal(t, int64(0), results[0].WriteCount)
+	topRes := results[0]
+	assert.Empty(t, topRes.OverallError, "no error expected even with no matches")
+
+	require.Len(t, topRes.SubOpResults, 4)
+	for _, s := range topRes.SubOpResults {
+		// Each sub-op might produce zero results or zero write/delete counts
+		assert.Empty(t, s.Error)
+		assert.Empty(t, s.Results)
+		assert.Equal(t, int64(0), s.DeleteCount)
+		assert.Equal(t, int64(0), s.WriteCount)
+	}
 }
 
 // TestPermissionDenied checks that we reject read attempts from a user lacking 'r'.
@@ -441,8 +512,8 @@ func TestPermissionDenied(t *testing.T) {
 				Path: llmfs.PathCriteria{Contains: "secretfile"},
 				Type: "file",
 			},
-			Operations: llmfs.Operations{
-				Read: true,
+			Operations: []llmfs.SingleOperation{
+				{Operation: "read"},
 			},
 		},
 	}
@@ -450,8 +521,13 @@ func TestPermissionDenied(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, results, 1)
-	assert.Contains(t, results[0].Error, "permission denied")
-	assert.Empty(t, results[0].Results)
+	topRes := results[0]
+	require.Empty(t, topRes.OverallError)
+
+	require.Len(t, topRes.SubOpResults, 1)
+	subRes := topRes.SubOpResults[0]
+	assert.Contains(t, subRes.Error, "permission denied")
+	assert.Empty(t, subRes.Results)
 }
 
 // TestGrantAndRevokeInSameOperation ensures one operation can both grant and revoke permissions.
@@ -471,8 +547,9 @@ func TestGrantAndRevokeInSameOperation(t *testing.T) {
 				Path: llmfs.PathCriteria{Contains: "somefile"},
 				Type: "file",
 			},
-			Operations: llmfs.Operations{
-				Write: &llmfs.WriteOperation{
+			Operations: []llmfs.SingleOperation{
+				{
+					Operation: "write",
 					Permissions: map[string]string{
 						"charlie": "",
 						"bob":     "r",
@@ -485,7 +562,11 @@ func TestGrantAndRevokeInSameOperation(t *testing.T) {
 	results, err := llmfs.PerformFilesystemOperations(ctx, "alice", "owner", input)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.Empty(t, results[0].Error)
+
+	topRes := results[0]
+	require.Empty(t, topRes.OverallError)
+	require.Len(t, topRes.SubOpResults, 1)
+	assert.Empty(t, topRes.SubOpResults[0].Error)
 
 	// Confirm in DB
 	var permString string
@@ -509,26 +590,34 @@ func TestPaginationAndSorting(t *testing.T) {
 	insertTestFile(t, ctx, "/fileB.txt", false, "Bravo", "", `{"alice":"l"}`)
 	insertTestFile(t, ctx, "/fileC.txt", false, "Charlie", "", `{"alice":"l"}`)
 
-	// Page 1
+	// Page 1 => sub-op with pagination
 	input := []llmfs.FilesystemOperation{
 		{
 			Match: llmfs.MatchCriteria{
 				Path: llmfs.PathCriteria{Contains: "file"},
 				Type: "file",
 			},
-			Pagination: &llmfs.Pagination{Page: 1, Limit: 2},
-			Sort:       &llmfs.Sort{Field: "path", Direction: "asc"},
-			Operations: llmfs.Operations{List: true},
+			Operations: []llmfs.SingleOperation{
+				{
+					Operation:  "list",
+					Pagination: &llmfs.Pagination{Page: 1, Limit: 2},
+					Sort:       &llmfs.Sort{Field: "path", Direction: "asc"},
+				},
+			},
 		},
 	}
 	results, err := llmfs.PerformFilesystemOperations(ctx, "alice", "owner", input)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	op := results[0]
-	require.Empty(t, op.Error)
-	require.Len(t, op.Results, 2, "limit=2 => only 2 items: fileA, fileB")
-	assert.Equal(t, "/fileA.txt", op.Results[0].Path)
-	assert.Equal(t, "/fileB.txt", op.Results[1].Path)
+	topRes := results[0]
+	require.Empty(t, topRes.OverallError)
+	require.Len(t, topRes.SubOpResults, 1)
+
+	page1Sub := topRes.SubOpResults[0]
+	require.Empty(t, page1Sub.Error)
+	require.Len(t, page1Sub.Results, 2, "limit=2 => only 2 items: fileA, fileB")
+	assert.Equal(t, "/fileA.txt", page1Sub.Results[0].Path)
+	assert.Equal(t, "/fileB.txt", page1Sub.Results[1].Path)
 
 	// Page 2
 	input2 := []llmfs.FilesystemOperation{
@@ -537,22 +626,35 @@ func TestPaginationAndSorting(t *testing.T) {
 				Path: llmfs.PathCriteria{Contains: "file"},
 				Type: "file",
 			},
-			Pagination: &llmfs.Pagination{Page: 2, Limit: 2},
-			Sort:       &llmfs.Sort{Field: "path", Direction: "asc"},
-			Operations: llmfs.Operations{List: true},
+			Operations: []llmfs.SingleOperation{
+				{
+					Operation:  "list",
+					Pagination: &llmfs.Pagination{Page: 2, Limit: 2},
+					Sort:       &llmfs.Sort{Field: "path", Direction: "asc"},
+				},
+			},
 		},
 	}
 	results2, err2 := llmfs.PerformFilesystemOperations(ctx, "alice", "owner", input2)
 	require.NoError(t, err2)
 	require.Len(t, results2, 1)
-	op2 := results2[0]
-	require.Empty(t, op2.Error)
-	require.Len(t, op2.Results, 1, "Expect 1 leftover: fileC.txt")
-	assert.Equal(t, "/fileC.txt", op2.Results[0].Path)
+	topRes2 := results2[0]
+	require.Empty(t, topRes2.OverallError)
+	require.Len(t, topRes2.SubOpResults, 1)
+
+	page2Sub := topRes2.SubOpResults[0]
+	require.Empty(t, page2Sub.Error)
+	require.Len(t, page2Sub.Results, 1, "Expect 1 leftover: fileC.txt")
+	assert.Equal(t, "/fileC.txt", page2Sub.Results[0].Path)
 }
 
 // TestParseTimeInvalidFormat checks how ParseTime handles nonsense strings.
 func TestParseTimeInvalidFormat(t *testing.T) {
 	invalid := llmfs.ParseTime("Not a real time string")
 	require.True(t, invalid.IsZero(), "Should return zero time on invalid parse")
+}
+
+// EscapeSingleQuotes is a small helper for naive escaping inside string literals.
+func EscapeSingleQuotes(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
 }
