@@ -85,6 +85,58 @@ BEGIN
     DELETE FROM blobs WHERE id = old.blob_id;
 END;
 
+-- Trigger: Ensure immediate parent directory exists before inserting a new file or directory.
+CREATE TRIGGER IF NOT EXISTS ensure_parent_directory
+BEFORE INSERT ON filesystem
+FOR EACH ROW
+WHEN new.path != '/'
+BEGIN
+    INSERT INTO filesystem (path, is_directory, permissions)
+    SELECT 
+        CASE 
+            WHEN substr(new.path, 1, length(new.path) - instr(reverse(new.path), '/')) = ''
+            THEN '/'
+            ELSE substr(new.path, 1, length(new.path) - instr(reverse(new.path), '/'))
+        END,
+        1,
+        json_object()
+    WHERE NOT EXISTS (
+        SELECT 1 FROM filesystem 
+        WHERE path = CASE 
+                        WHEN substr(new.path, 1, length(new.path) - instr(reverse(new.path), '/')) = ''
+                        THEN '/'
+                        ELSE substr(new.path, 1, length(new.path) - instr(reverse(new.path), '/'))
+                     END
+          AND is_directory = 1
+    );
+END;
+
+-- Trigger: Cascade parent directory creation for newly inserted directories.
+CREATE TRIGGER IF NOT EXISTS cascade_parent_directory_creation
+AFTER INSERT ON filesystem
+FOR EACH ROW
+WHEN new.is_directory = 1 AND new.path != '/'
+BEGIN
+    INSERT INTO filesystem (path, is_directory, permissions)
+    SELECT 
+        CASE 
+            WHEN substr(new.path, 1, length(new.path) - instr(reverse(new.path), '/')) = ''
+            THEN '/'
+            ELSE substr(new.path, 1, length(new.path) - instr(reverse(new.path), '/'))
+        END,
+        1,
+        json_object()
+    WHERE NOT EXISTS (
+        SELECT 1 FROM filesystem 
+        WHERE path = CASE 
+                        WHEN substr(new.path, 1, length(new.path) - instr(reverse(new.path), '/')) = ''
+                        THEN '/'
+                        ELSE substr(new.path, 1, length(new.path) - instr(reverse(new.path), '/'))
+                     END
+          AND is_directory = 1
+    );
+END;
+
 -- Virtual table: Filesystem path FTS
 CREATE VIRTUAL TABLE IF NOT EXISTS filesystem_path_fts USING fts5(
     path,
@@ -180,30 +232,18 @@ CREATE VIRTUAL TABLE IF NOT EXISTS filesystem_rev_path_fts USING fts5(
 
 -- Insert: Existing filesystem records into reverse path FTS
 INSERT INTO filesystem_rev_path_fts(rowid, reversed_path)
-SELECT id, (
-    WITH RECURSIVE rev(s, r) AS (
-        SELECT path, ''
-        UNION ALL
-        SELECT substr(s, 2), substr(s, 1, 1) || r FROM rev WHERE length(s) > 0
-    ) 
-    SELECT r FROM rev WHERE s = ''
-) AS reversed_path
+SELECT id, reverse(path)
 FROM filesystem
-WHERE NOT EXISTS (SELECT 1 FROM filesystem_rev_path_fts WHERE rowid = filesystem.id);
+WHERE NOT EXISTS (
+    SELECT 1 FROM filesystem_rev_path_fts WHERE rowid = filesystem.id
+);
 
 -- Trigger: After filesystem insert, insert into reverse path FTS
 CREATE TRIGGER IF NOT EXISTS filesystem_rev_path_ai
 AFTER INSERT ON filesystem
 BEGIN
     INSERT INTO filesystem_rev_path_fts(rowid, reversed_path) 
-    VALUES (new.id, (
-        WITH RECURSIVE rev(s, r) AS (
-            SELECT new.path, ''
-            UNION ALL
-            SELECT substr(s, 2), substr(s, 1, 1) || r FROM rev WHERE length(s) > 0
-        ) 
-        SELECT r FROM rev WHERE s = ''
-    ));
+    VALUES (new.id, reverse(new.path));
 END;
 
 -- Trigger: After filesystem delete, delete from reverse path FTS
@@ -218,13 +258,6 @@ CREATE TRIGGER IF NOT EXISTS filesystem_rev_path_au
 AFTER UPDATE ON filesystem
 BEGIN
     UPDATE filesystem_rev_path_fts
-    SET reversed_path = (
-        WITH RECURSIVE rev(s, r) AS (
-            SELECT new.path, ''
-            UNION ALL
-            SELECT substr(s, 2), substr(s, 1, 1) || r FROM rev WHERE length(s) > 0
-        ) 
-        SELECT r FROM rev WHERE s = ''
-    )
+    SET reversed_path = reverse(new.path)
     WHERE rowid = new.id;
 END;
