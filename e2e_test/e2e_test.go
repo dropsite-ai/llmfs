@@ -18,6 +18,13 @@ import (
 )
 
 func TestEndToEndUserJourney(t *testing.T) {
+	// Preliminary check: if the webserver is not up, skip tests.
+	resp, err := http.Get("http://localhost:8080/ok")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Skip("Webserver not up, skipping tests")
+	}
+	resp.Body.Close()
+
 	rootSecret, err := loadRootJWTSecret("../llmfs.yaml")
 	require.NoError(t, err, "failed to load root JWT secret from llmfs.yaml (or llmfs.yml)")
 

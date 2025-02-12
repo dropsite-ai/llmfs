@@ -168,6 +168,11 @@ func main() {
 		json.NewEncoder(w).Encode(results)
 	})))
 
+	// Provide /ok status endpoint.
+	mux.Handle("/ok", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "OK")
+	}))
+
 	addr := fmt.Sprintf(":%d", *httpPort)
 	log.Printf("Server listening on %d", *httpPort)
 	if err := http.ListenAndServe(addr, mux); err != nil {
