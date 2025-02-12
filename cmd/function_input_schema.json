@@ -89,7 +89,7 @@
             },
             "type": {
               "type": "string",
-              "description": "Optional item type for the relative_path: file or directory.",
+              "description": "Optional relative path file type: file or directory.",
               "enum": [
                 "file",
                 "directory"
