@@ -335,7 +335,7 @@ func buildListOrReadQuery(matched []fileIDPath, opIndex, subOpIndex int, include
 	selectCols := "id, path, is_directory, description, created_at, updated_at"
 	if includeContent {
 		opType = "read"
-		selectCols += ", content"
+		selectCols += ", content, blob_id"
 	}
 
 	query := fmt.Sprintf(`

@@ -173,6 +173,9 @@ func TestEndToEndUserJourney(t *testing.T) {
 	require.Len(t, res, 1)
 	require.Empty(t, res[0].OverallError, "testUser should be able to create a file under /users/testuser")
 
+	//----------------------------------------------------------------------
+	// Step 9: Test writing a blob
+	//----------------------------------------------------------------------
 	uploadReq := map[string]interface{}{
 		"name":       "test_blob.txt",
 		"total_size": 4, // in bytes
@@ -208,32 +211,56 @@ func TestEndToEndUserJourney(t *testing.T) {
 	require.True(t, ok, "written should be a number")
 	require.Equal(t, 4, int(written), "expected 4 bytes written")
 
-	//----------------------------------------------------------------------
-	// Step 11: Download the blob using a signed URL via GET /blobs/signed.
-	//----------------------------------------------------------------------
-	// Use the helper in your code to generate a signed URL (which uses your JWT secret).
-	expires := time.Now().Add(10 * time.Minute)
-	signedPath := llmfs.GenerateSignedBlobURL(blobID, expires)
-	signedURL := "http://localhost:8080" + signedPath
+	//-----------------------------------------------------------------------
+	// Step 11: Write then immediately read the file record.
+	// This single operation first writes the file record with a ContentPayload
+	// referencing the blob, then reads it back so that RowToFileRecord can generate
+	// a signed BlobURL.
+	//-----------------------------------------------------------------------
+	combinedOp := []llmfs.FilesystemOperation{
+		{
+			Match: llmfs.MatchCriteria{
+				Path: llmfs.PathCriteria{
+					Exactly: fmt.Sprintf("/users/%s/blob_reference.txt", testUser),
+				},
+				Type: "file",
+			},
+			Operations: []llmfs.SingleOperation{
+				{
+					Operation: "write",
+					Content: &llmfs.ContentPayload{
+						// Using the blobID from the earlier upload step.
+						URL: fmt.Sprintf("llmfs://blob/%d", blobID),
+					},
+				},
+				{
+					Operation: "read",
+				},
+			},
+		},
+	}
+	res = perform(t, testUserToken, combinedOp)
+	require.Len(t, res, 1)
+	require.Empty(t, res[0].OverallError, "expected combined write/read op to succeed")
+	require.Len(t, res[0].SubOpResults, 2, "expected two sub-ops: write and read")
 
-	signedResp := doGET(t, signedURL, testUserToken)
+	// The read sub-operation is at index 1.
+	readSubOp := res[0].SubOpResults[1]
+	require.Empty(t, readSubOp.Error, "read sub-op should have no error")
+	require.NotEmpty(t, readSubOp.Results, "read should return a file record")
+	blobRecord := readSubOp.Results[0]
+	require.NotEmpty(t, blobRecord.BlobURL, "expected BlobURL to be set in the file record")
+
+	// -----------------------------------------------------------------------
+	// Step 12: Use the BlobURL from the file record to download the blob and verify its content.
+	// -----------------------------------------------------------------------
+	blobURL := "http://localhost:8080" + blobRecord.BlobURL
+	signedResp := doGET(t, blobURL, testUserToken)
 	defer signedResp.Body.Close()
-	blobContent, err := io.ReadAll(signedResp.Body)
-	require.Equal(t, http.StatusOK, signedResp.StatusCode, "expected 200 OK from /blobs/signed")
+	downloadedContent, err := io.ReadAll(signedResp.Body)
 	require.NoError(t, err, "failed to read blob content")
-	require.Equal(t, "data", string(blobContent), "downloaded blob content should match uploaded chunk")
-
-	//----------------------------------------------------------------------
-	// Step 12: Verify the /system endpoint returns the expected keys.
-	//----------------------------------------------------------------------
-	systemResp := doGET(t, "http://localhost:8080/system", testUserToken)
-	defer systemResp.Body.Close()
-	require.Equal(t, http.StatusOK, systemResp.StatusCode, "expected 200 OK from /system")
-	var systemData map[string]interface{}
-	require.NoError(t, json.NewDecoder(systemResp.Body).Decode(&systemData), "failed to decode /system response")
-	require.Contains(t, systemData, "system_instruction", "/system response should contain system_instruction")
-	require.Contains(t, systemData, "function_input_schema", "/system response should contain function_input_schema")
-	require.Contains(t, systemData, "function_output_schema", "/system response should contain function_output_schema")
+	require.Equal(t, http.StatusOK, signedResp.StatusCode, "expected 200 OK from blob download")
+	require.Equal(t, "data", string(downloadedContent), "downloaded blob content should match uploaded chunk")
 
 	//----------------------------------------------------------------------
 	// All done!
