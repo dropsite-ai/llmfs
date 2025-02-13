@@ -5,12 +5,9 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 
-	"github.com/dropsite-ai/llmfs"
-	"github.com/dropsite-ai/llmfs/auth"
 	"github.com/xeipuuv/gojsonschema"
 )
 
@@ -49,16 +46,16 @@ func Register(ctx context.Context, owner string) http.Handler {
 	mux := http.NewServeMux()
 
 	// Example: POST /blobs => create blob (requires auth).
-	mux.Handle("/blobs", auth.AuthMiddleware(http.HandlerFunc(llmfs.InitiateBlobUploadHandler)))
+	mux.Handle("/blobs", AuthMiddleware(http.HandlerFunc(InitiateBlobUploadHandler)))
 
 	// Example: POST /blobs/chunk => write blob chunk (requires auth).
-	mux.Handle("/blobs/chunk", auth.AuthMiddleware(http.HandlerFunc(llmfs.UploadBlobChunkHandler)))
+	mux.Handle("/blobs/chunk", AuthMiddleware(http.HandlerFunc(UploadBlobChunkHandler)))
 
 	// Example: GET /blobs/signed => read blob by signature (requires auth).
-	mux.Handle("/blobs/signed", auth.AuthMiddleware(http.HandlerFunc(llmfs.GetSignedBlobHandler)))
+	mux.Handle("/blobs/signed", AuthMiddleware(http.HandlerFunc(GetSignedBlobHandler)))
 
 	// Provide /system endpoint to return the dummy system instruction + both schemas.
-	mux.Handle("/system", auth.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/system", AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		systemInstruction := "Call the perform_filesystem_operations function when the user's request can be implemented in one or more filesystem operations."
 
 		// Build the response from our preloaded schemas
@@ -72,58 +69,10 @@ func Register(ctx context.Context, owner string) http.Handler {
 	})))
 
 	// /auth endpoint to validate tokens.
-	mux.HandleFunc("/auth", auth.AuthHandler)
+	mux.HandleFunc("/auth", AuthHandler)
 
 	// /perform endpoint: validated by the preloaded input schema.
-	mux.Handle("/perform", auth.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		bodyBytes, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to read request body: %v", err), http.StatusBadRequest)
-			return
-		}
-		defer r.Body.Close()
-
-		// Validate JSON against the preloaded schema via gojsonschema.
-		docLoader := gojsonschema.NewBytesLoader(bodyBytes)
-		result, err := gojsonschema.Validate(schemaLoader, docLoader)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Schema validation error: %v", err), http.StatusInternalServerError)
-			return
-		}
-		if !result.Valid() {
-			var errs []string
-			for _, desc := range result.Errors() {
-				errs = append(errs, desc.String())
-			}
-			http.Error(w, fmt.Sprintf("Invalid input JSON:\n%s", errs), http.StatusBadRequest)
-			return
-		}
-
-		// If valid, unmarshal into our operations slice.
-		var operations []llmfs.FilesystemOperation
-		if err = json.Unmarshal(bodyBytes, &operations); err != nil {
-			http.Error(w, fmt.Sprintf("JSON unmarshal error: %v", err), http.StatusBadRequest)
-			return
-		}
-
-		// Get the authenticated user from context.
-		currentUser, ok := r.Context().Value(llmfs.UsernameKey).(string)
-		if !ok || currentUser == "" {
-			http.Error(w, "Failed to determine authenticated user", http.StatusInternalServerError)
-			return
-		}
-
-		// Perform the filesystem operations.
-		results, err := llmfs.PerformFilesystemOperations(ctx, currentUser, owner, operations)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("PerformFilesystemOperations error: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		// Return the results as JSON.
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(results)
-	})))
+	mux.Handle("/perform", AuthMiddleware(http.HandlerFunc(performHandler(ctx, owner))))
 
 	// Provide /ok status endpoint.
 	mux.Handle("/ok", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

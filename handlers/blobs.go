@@ -1,4 +1,4 @@
-package llmfs
+package handlers
 
 import (
 	"crypto/hmac"
@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dropsite-ai/llmfs"
 	"github.com/dropsite-ai/llmfs/config"
 	"github.com/dropsite-ai/sqliteutils/exec"
 )
@@ -28,7 +29,7 @@ type InitiateUploadRequest struct {
 
 func InitiateBlobUploadHandler(w http.ResponseWriter, r *http.Request) {
 	// Require an authenticated user.
-	currentUser, ok := r.Context().Value(UsernameKey).(string)
+	currentUser, ok := r.Context().Value(llmfs.UsernameKey).(string)
 	if !ok || currentUser == "" {
 		http.Error(w, "Not authenticated", http.StatusUnauthorized)
 		return
@@ -58,7 +59,7 @@ func InitiateBlobUploadHandler(w http.ResponseWriter, r *http.Request) {
 	`
 	usageParams := map[string]interface{}{":uname": currentUser}
 	err := exec.Exec(r.Context(), usageQuery, usageParams, func(_ int, row map[string]interface{}) {
-		totalBytes = AsInt64(row["total_bytes"])
+		totalBytes = llmfs.AsInt64(row["total_bytes"])
 	})
 	if err != nil {
 		http.Error(w, "DB error checking usage: "+err.Error(), http.StatusInternalServerError)
@@ -105,7 +106,7 @@ func InitiateBlobUploadHandler(w http.ResponseWriter, r *http.Request) {
 // It expects query parameters "blob_id" and "offset".
 func UploadBlobChunkHandler(w http.ResponseWriter, r *http.Request) {
 	// Require an authenticated user.
-	currentUser, ok := r.Context().Value(UsernameKey).(string)
+	currentUser, ok := r.Context().Value(llmfs.UsernameKey).(string)
 	if !ok || currentUser == "" {
 		http.Error(w, "Not authenticated", http.StatusUnauthorized)
 		return
@@ -134,7 +135,7 @@ func UploadBlobChunkHandler(w http.ResponseWriter, r *http.Request) {
 	query := "SELECT username FROM blobs WHERE id = :id LIMIT 1;"
 	params := map[string]interface{}{":id": blobID}
 	err = exec.Exec(r.Context(), query, params, func(_ int, row map[string]interface{}) {
-		owner = AsString(row["username"])
+		owner = llmfs.AsString(row["username"])
 	})
 	if err != nil {
 		http.Error(w, "DB error verifying blob owner: "+err.Error(), http.StatusInternalServerError)
@@ -229,7 +230,7 @@ func GetSignedBlobHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Require an authenticated user.
-	currentUser, ok := r.Context().Value(UsernameKey).(string)
+	currentUser, ok := r.Context().Value(llmfs.UsernameKey).(string)
 	if !ok || currentUser == "" {
 		http.Error(w, "Not authenticated", http.StatusUnauthorized)
 		return
@@ -240,8 +241,8 @@ func GetSignedBlobHandler(w http.ResponseWriter, r *http.Request) {
 	metaQuery := "SELECT mime_type, username FROM blobs WHERE id = :id LIMIT 1;"
 	metaParams := map[string]interface{}{":id": blobID}
 	err = exec.Exec(r.Context(), metaQuery, metaParams, func(_ int, row map[string]interface{}) {
-		mimeType = AsString(row["mime_type"])
-		owner = AsString(row["username"])
+		mimeType = llmfs.AsString(row["mime_type"])
+		owner = llmfs.AsString(row["username"])
 	})
 	if err != nil {
 		http.Error(w, "DB error retrieving blob metadata: "+err.Error(), http.StatusInternalServerError)
