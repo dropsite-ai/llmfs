@@ -2,29 +2,46 @@ package llmfs_e2e_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/dropsite-ai/llmfs"
 	"github.com/dropsite-ai/llmfs/config"
+	"github.com/dropsite-ai/llmfs/handlers"
+	"github.com/dropsite-ai/llmfs/migrate"
+	"github.com/dropsite-ai/sqliteutils/pool"
+	"github.com/dropsite-ai/sqliteutils/test"
 	"github.com/golang-jwt/jwt" // or jwt/v4
 	"github.com/stretchr/testify/require"
 )
 
 func TestEndToEndUserJourney(t *testing.T) {
-	// Preliminary check: if the webserver is not up, skip tests.
-	// Clear the cache: go clean -testcache
-	resp, err := http.Get("http://localhost:8080/ok")
-	if err != nil || resp.StatusCode != http.StatusOK {
-		t.Skip("Webserver not up, skipping tests")
+	ctx := context.Background()
+
+	// Initialize DB connection pool.
+	if err := test.Pool(ctx, t, "", 1); err != nil {
+		log.Fatalf("Failed to init database pool: %v", err)
 	}
-	resp.Body.Close()
+	defer func() {
+		if err := pool.ClosePool(); err != nil {
+			log.Fatalf("Failed to close pool: %v", err)
+		}
+	}()
+
+	// Run any necessary migrations on startup.
+	migrate.Migrate(ctx)
 
 	config.Load("../llmfs.yaml")
+
+	ts := httptest.NewServer(handlers.Register(ctx, "root"))
+	defer ts.Close()
 
 	// Step 1: Generate a valid root token
 	rootToken, err := generateJWT("root", config.Cfg.JWTSecret)
@@ -55,7 +72,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 			},
 		},
 	}
-	res := perform(t, rootToken, opsCreateUserFile)
+	res := perform(t, ts, rootToken, opsCreateUserFile)
 	require.Len(t, res, 1)
 	require.Empty(t, res[0].OverallError, "expected to successfully create /llmfs/users/testuser.json")
 
@@ -80,7 +97,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 			},
 		},
 	}
-	res = perform(t, rootToken, opsCreateUserDir)
+	res = perform(t, ts, rootToken, opsCreateUserDir)
 	require.Len(t, res, 1)
 	require.Empty(t, res[0].OverallError, "expected to successfully create /users/testuser directory")
 
@@ -94,7 +111,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 	// Step 5: Verify /auth works with testUser’s token
 	//----------------------------------------------------------------------
 	{
-		resp := doGET(t, "http://localhost:8080/auth", testUserToken)
+		resp := doGET(t, ts.URL+"/auth", testUserToken)
 		defer resp.Body.Close()
 		require.Equal(t, http.StatusOK, resp.StatusCode, "testUser /auth should succeed")
 
@@ -118,12 +135,12 @@ func TestEndToEndUserJourney(t *testing.T) {
 			},
 		},
 	}
-	res = perform(t, testUserToken, opsBadPermissions)
+	res = perform(t, ts, testUserToken, opsBadPermissions)
 	require.Len(t, res, 1)
 	require.Contains(t, res[0].SubOpResults[0].Error, "permission denied", "testUser should not have perms on /")
 
 	opsBadPermissions[0].Match.Path.Exactly = "/users"
-	res = perform(t, testUserToken, opsBadPermissions)
+	res = perform(t, ts, testUserToken, opsBadPermissions)
 	require.Len(t, res, 1)
 	require.Contains(t, res[0].SubOpResults[0].Error, "permission denied", "testUser should not have perms on /users")
 
@@ -143,7 +160,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 			},
 		},
 	}
-	res = perform(t, testUserToken, opsGoodPermissions)
+	res = perform(t, ts, testUserToken, opsGoodPermissions)
 	require.Len(t, res, 1)
 	require.Empty(t, res[0].OverallError, "testUser should have no error listing their own directory")
 
@@ -169,7 +186,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 			},
 		},
 	}
-	res = perform(t, testUserToken, opsWriteFile)
+	res = perform(t, ts, testUserToken, opsWriteFile)
 	require.Len(t, res, 1)
 	require.Empty(t, res[0].OverallError, "testUser should be able to create a file under /users/testuser")
 
@@ -184,7 +201,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 	reqBody, err := json.Marshal(uploadReq)
 	require.NoError(t, err, "failed to marshal blob upload request")
 
-	blobResp := doPost(t, "http://localhost:8080/blobs", testUserToken, bytes.NewReader(reqBody), "application/json")
+	blobResp := doPost(t, ts.URL+"/blobs", testUserToken, bytes.NewReader(reqBody), "application/json")
 	defer blobResp.Body.Close()
 	require.Equal(t, http.StatusOK, blobResp.StatusCode, "expected 200 OK from /blobs")
 
@@ -200,7 +217,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 	// Step 10: Upload a chunk via POST /blobs/chunk.
 	//----------------------------------------------------------------------
 	chunkData := []byte("data") // 4 bytes of data
-	chunkURL := fmt.Sprintf("http://localhost:8080/blobs/chunk?blob_id=%d&offset=0", blobID)
+	chunkURL := fmt.Sprintf(ts.URL+"/blobs/chunk?blob_id=%d&offset=0", blobID)
 	chunkResp := doPost(t, chunkURL, testUserToken, bytes.NewReader(chunkData), "application/octet-stream")
 	defer chunkResp.Body.Close()
 	require.Equal(t, http.StatusOK, chunkResp.StatusCode, "expected 200 OK from /blobs/chunk")
@@ -212,12 +229,12 @@ func TestEndToEndUserJourney(t *testing.T) {
 	require.Equal(t, 4, int(written), "expected 4 bytes written")
 
 	//-----------------------------------------------------------------------
-	// Step 11: Write then immediately read the file record.
-	// This single operation first writes the file record with a ContentPayload
-	// referencing the blob, then reads it back so that RowToFileRecord can generate
-	// a signed BlobURL.
+	// New Step 11: Write a file record that references the blob via its URL.
+	// Instead of directly calling GenerateSignedBlobURL, we update a file record
+	// using a write operation. This will extract the blobID from the URL and store
+	// it in the file record.
 	//-----------------------------------------------------------------------
-	combinedOp := []llmfs.FilesystemOperation{
+	writeFileOp := []llmfs.FilesystemOperation{
 		{
 			Match: llmfs.MatchCriteria{
 				Path: llmfs.PathCriteria{
@@ -228,31 +245,46 @@ func TestEndToEndUserJourney(t *testing.T) {
 			Operations: []llmfs.SingleOperation{
 				{
 					Operation: "write",
+					// Providing the blob reference as a URL lets the write query extract the blobID.
 					Content: &llmfs.ContentPayload{
-						// Using the blobID from the earlier upload step.
 						URL: fmt.Sprintf("llmfs://blob/%d", blobID),
 					},
-				},
-				{
-					Operation: "read",
 				},
 			},
 		},
 	}
-	res = perform(t, testUserToken, combinedOp)
+	res = perform(t, ts, testUserToken, writeFileOp)
 	require.Len(t, res, 1)
-	require.Empty(t, res[0].OverallError, "expected combined write/read op to succeed")
-	require.Len(t, res[0].SubOpResults, 2, "expected two sub-ops: write and read")
+	require.Empty(t, res[0].OverallError, "expected file record write to succeed")
 
-	// The read sub-operation is at index 1.
-	readSubOp := res[0].SubOpResults[1]
-	require.Empty(t, readSubOp.Error, "read sub-op should have no error")
-	require.NotEmpty(t, readSubOp.Results, "read should return a file record")
-	blobRecord := readSubOp.Results[0]
+	// -----------------------------------------------------------------------
+	// New Step 12: Read back the file record to retrieve the generated BlobURL.
+	// The RowToFileRecord function (called during a read) will generate a signed URL
+	// if the record has a valid blob_id.
+	// -----------------------------------------------------------------------
+	readFileOp := []llmfs.FilesystemOperation{
+		{
+			Match: llmfs.MatchCriteria{
+				Path: llmfs.PathCriteria{
+					Exactly: fmt.Sprintf("/users/%s/blob_reference.txt", testUser),
+				},
+				Type: "file",
+			},
+			Operations: []llmfs.SingleOperation{
+				{Operation: "read"},
+			},
+		},
+	}
+	res = perform(t, ts, testUserToken, readFileOp)
+	require.Len(t, res, 1)
+	require.Empty(t, res[0].OverallError, "expected file record read to succeed")
+	require.Len(t, res[0].SubOpResults, 1)
+	require.NotEmpty(t, res[0].SubOpResults[0].Results, "read should return a file record")
+	blobRecord := res[0].SubOpResults[0].Results[0]
 	require.NotEmpty(t, blobRecord.BlobURL, "expected BlobURL to be set in the file record")
 
 	// -----------------------------------------------------------------------
-	// Step 12: Use the BlobURL from the file record to download the blob and verify its content.
+	// New Step 13: Use the BlobURL from the file record to download the blob and verify its content.
 	// -----------------------------------------------------------------------
 	blobURL := "http://localhost:8080" + blobRecord.BlobURL
 	signedResp := doGET(t, blobURL, testUserToken)
@@ -286,13 +318,13 @@ func generateJWT(username, secret string) (string, error) {
 // and parse back the []llmfs.OperationResult
 //----------------------------------------------------------------------------------
 
-func perform(t *testing.T, bearerToken string, ops []llmfs.FilesystemOperation) []llmfs.OperationResult {
+func perform(t *testing.T, ts *httptest.Server, bearerToken string, ops []llmfs.FilesystemOperation) []llmfs.OperationResult {
 	t.Helper()
 
 	payload, err := json.Marshal(ops)
 	require.NoError(t, err, "failed to marshal /perform payload")
 
-	req, err := http.NewRequest(http.MethodPost, "http://localhost:8080/perform", bytes.NewReader(payload))
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/perform", bytes.NewReader(payload))
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+bearerToken)
 	req.Header.Set("Content-Type", "application/json")
