@@ -79,7 +79,7 @@ Choose your preferred deployment:
 - **LLMFS Cloud**: [Sign up for our managed, zero-ops environment.](https://llmfs.com/cloud.html)
 - **Self-Hosted**: Spin up your own LLMFS server for complete control over your infrastructure.
   ```bash
-  ./llmfs -db llmfs.db \
+  llmfs -db llmfs.db \
           -yaml llmfs.yaml \
           -owner root \
           -port 8080
