@@ -1,6 +1,6 @@
 # LLMFS
 
-**The Open-Source Virtual Filesystem Built for AI and Human Collaboration**
+**The Open-Source Virtual Filesystem Built for AI and Human Collaboration 🤝**
 
 ---
 
@@ -71,8 +71,6 @@ Grab the latest pre-built binaries from the [LLMFS GitHub Releases](https://gith
 ---
 
 ## Getting Started
-
-LLMFS is engineered for modern AI workflows—empowering your pipelines with atomic, secure file operations that integrate seamlessly into large language models.
 
 ### Step 1: Launch an Instance
 
