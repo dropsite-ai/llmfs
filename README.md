@@ -4,7 +4,7 @@
 
 ---
 
-## Introduction & Overview
+## Overview
 
 LLMFS is a high-performance virtual filesystem server built on SQLite that lets you execute multiple file operations in a single atomic API call from your large language model (LLM).
 
