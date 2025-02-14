@@ -61,7 +61,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 				},
 				Type: "file", // we’re effectively creating a file
 			},
-			Operations: []llmfs.SingleOperation{
+			Operations: []llmfs.SubOperation{
 				{
 					Operation: "write",
 					Content: &llmfs.ContentPayload{
@@ -86,7 +86,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 				},
 				Type: "directory",
 			},
-			Operations: []llmfs.SingleOperation{
+			Operations: []llmfs.SubOperation{
 				{
 					Operation:    "write",
 					RelativePath: testUser,    // creates "/users/testuser"
@@ -129,7 +129,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 					Exactly: "/",
 				},
 			},
-			Operations: []llmfs.SingleOperation{
+			Operations: []llmfs.SubOperation{
 				{Operation: "list"},
 			},
 		},
@@ -154,7 +154,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 				},
 				Type: "directory",
 			},
-			Operations: []llmfs.SingleOperation{
+			Operations: []llmfs.SubOperation{
 				{Operation: "list"},
 			},
 		},
@@ -174,7 +174,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 				},
 				Type: "directory",
 			},
-			Operations: []llmfs.SingleOperation{
+			Operations: []llmfs.SubOperation{
 				{
 					Operation:    "write",
 					RelativePath: "notes.txt",
@@ -241,7 +241,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 				},
 				Type: "file",
 			},
-			Operations: []llmfs.SingleOperation{
+			Operations: []llmfs.SubOperation{
 				{
 					Operation: "write",
 					// Providing the blob reference as a URL lets the write query extract the blobID.
@@ -269,7 +269,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 				},
 				Type: "file",
 			},
-			Operations: []llmfs.SingleOperation{
+			Operations: []llmfs.SubOperation{
 				{Operation: "read"},
 			},
 		},

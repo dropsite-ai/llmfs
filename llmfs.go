@@ -10,19 +10,9 @@ import (
 	"github.com/dropsite-ai/sqliteutils/exec"
 )
 
-// contextKey is used for storing/retrieving the username from context.
-type contextKey int
-
-// UsernameKey is the context key for the currently authenticated user.
-const UsernameKey contextKey = iota
-
-// ------------------------------------------------------------------
-// Updated Data Structures
-// ------------------------------------------------------------------
-
-// SingleOperation corresponds to one sub-operation within the "operations" array
+// SubOperation corresponds to one sub-operation within the "operations" array
 // under each top-level FilesystemOperation in the new JSON schema.
-type SingleOperation struct {
+type SubOperation struct {
 	Operation    string            `json:"operation"`               // "list", "read", "delete", "write"
 	RelativePath string            `json:"relative_path,omitempty"` // subpath (for directories) or override for a file
 	Type         string            `json:"type,omitempty"`          // file type of the relative path (if specified)
@@ -36,8 +26,8 @@ type SingleOperation struct {
 // FilesystemOperation is the top-level object for each array element
 // in the new JSON schema. It has a "match" + an array of sub-operations.
 type FilesystemOperation struct {
-	Match      MatchCriteria     `json:"match"`
-	Operations []SingleOperation `json:"operations"`
+	Match      MatchCriteria  `json:"match"`
+	Operations []SubOperation `json:"operations"`
 }
 
 // SubOperationResult captures the result of a single sub-operation (e.g., one item in "operations").
@@ -229,7 +219,7 @@ func PerformFilesystemOperations(
 // It does the permission checks, then calls the appropriate helper(s) to build queries.
 func buildSubOperationQueries(
 	ctx context.Context,
-	subOp SingleOperation,
+	subOp SubOperation,
 	match MatchCriteria,
 	matched []fileIDPath,
 	opIndex int,
@@ -400,7 +390,7 @@ SELECT :op_idx AS op_idx,
 func buildWriteQuery(
 	matched []fileIDPath,
 	match MatchCriteria,
-	subOp SingleOperation,
+	subOp SubOperation,
 	opIndex, subOpIndex int,
 ) ([]string, []map[string]interface{}) {
 	var queries []string

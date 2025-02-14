@@ -29,7 +29,7 @@ type InitiateUploadRequest struct {
 
 func InitiateBlobUploadHandler(w http.ResponseWriter, r *http.Request) {
 	// Require an authenticated user.
-	currentUser, ok := r.Context().Value(llmfs.UsernameKey).(string)
+	currentUser, ok := r.Context().Value(UsernameKey).(string)
 	if !ok || currentUser == "" {
 		http.Error(w, "Not authenticated", http.StatusUnauthorized)
 		return
@@ -106,7 +106,7 @@ func InitiateBlobUploadHandler(w http.ResponseWriter, r *http.Request) {
 // It expects query parameters "blob_id" and "offset".
 func UploadBlobChunkHandler(w http.ResponseWriter, r *http.Request) {
 	// Require an authenticated user.
-	currentUser, ok := r.Context().Value(llmfs.UsernameKey).(string)
+	currentUser, ok := r.Context().Value(UsernameKey).(string)
 	if !ok || currentUser == "" {
 		http.Error(w, "Not authenticated", http.StatusUnauthorized)
 		return
@@ -230,7 +230,7 @@ func GetSignedBlobHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Require an authenticated user.
-	currentUser, ok := r.Context().Value(llmfs.UsernameKey).(string)
+	currentUser, ok := r.Context().Value(UsernameKey).(string)
 	if !ok || currentUser == "" {
 		http.Error(w, "Not authenticated", http.StatusUnauthorized)
 		return

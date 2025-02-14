@@ -78,7 +78,7 @@ func getUserSecret(username string) (string, error) {
 					Exactly: userPath,
 				},
 			},
-			Operations: []llmfs.SingleOperation{
+			Operations: []llmfs.SubOperation{
 				{
 					Operation: "read",
 				},
@@ -215,7 +215,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		ctx := context.WithValue(r.Context(), llmfs.UsernameKey, username)
+		ctx := context.WithValue(r.Context(), UsernameKey, username)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

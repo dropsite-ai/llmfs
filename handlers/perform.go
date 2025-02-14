@@ -44,7 +44,7 @@ func performHandler(ctx context.Context, owner string) func(w http.ResponseWrite
 		}
 
 		// Get the authenticated user from context.
-		currentUser, ok := r.Context().Value(llmfs.UsernameKey).(string)
+		currentUser, ok := r.Context().Value(UsernameKey).(string)
 		if !ok || currentUser == "" {
 			http.Error(w, "Failed to determine authenticated user", http.StatusInternalServerError)
 			return

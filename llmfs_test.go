@@ -150,7 +150,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 						Path: llmfs.PathCriteria{Contains: "file1"},
 						Type: "file",
 					},
-					Operations: []llmfs.SingleOperation{
+					Operations: []llmfs.SubOperation{
 						{Operation: "list"},
 					},
 				},
@@ -178,7 +178,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 						Path: llmfs.PathCriteria{Contains: "file1"},
 						Type: "file",
 					},
-					Operations: []llmfs.SingleOperation{
+					Operations: []llmfs.SubOperation{
 						{Operation: "read"},
 					},
 				},
@@ -204,7 +204,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 						Path: llmfs.PathCriteria{Contains: "file1"},
 						Type: "file",
 					},
-					Operations: []llmfs.SingleOperation{
+					Operations: []llmfs.SubOperation{
 						{Operation: "list"},
 						{Operation: "read"},
 					},
@@ -238,7 +238,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 							Exactly: "/topdir",
 						},
 					},
-					Operations: []llmfs.SingleOperation{
+					Operations: []llmfs.SubOperation{
 						{
 							Operation:    "write",
 							RelativePath: "newfile.txt",
@@ -271,7 +271,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 						Path: llmfs.PathCriteria{Contains: "file1"},
 						Type: "file",
 					},
-					Operations: []llmfs.SingleOperation{
+					Operations: []llmfs.SubOperation{
 						{Operation: "delete"},
 					},
 				},
@@ -296,7 +296,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 						Path: llmfs.PathCriteria{Contains: "topdir"},
 						Type: "directory",
 					},
-					Operations: []llmfs.SingleOperation{
+					Operations: []llmfs.SubOperation{
 						{
 							Operation:    "write",
 							RelativePath: "tempfile.txt",
@@ -336,7 +336,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 						Path: llmfs.PathCriteria{Contains: "topdir"},
 						Type: "directory",
 					},
-					Operations: []llmfs.SingleOperation{
+					Operations: []llmfs.SubOperation{
 						{Operation: "list"},
 						{
 							Operation:    "write",
@@ -375,7 +375,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 						Path: llmfs.PathCriteria{Contains: "file1"},
 						Type: "file",
 					},
-					Operations: []llmfs.SingleOperation{
+					Operations: []llmfs.SubOperation{
 						{Operation: "list"},
 						{Operation: "read"},
 						{Operation: "delete"},
@@ -412,7 +412,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 						Path: llmfs.PathCriteria{Contains: "file"},
 						Type: "file",
 					},
-					Operations: []llmfs.SingleOperation{
+					Operations: []llmfs.SubOperation{
 						{
 							Operation:  "list",
 							Pagination: &llmfs.Pagination{Page: 1, Limit: 1},
@@ -467,7 +467,7 @@ func TestNoMatches(t *testing.T) {
 			Match: llmfs.MatchCriteria{
 				Path: llmfs.PathCriteria{Contains: "nonexistent.txt"},
 			},
-			Operations: []llmfs.SingleOperation{
+			Operations: []llmfs.SubOperation{
 				{Operation: "list"},
 				{Operation: "read"},
 				{
@@ -512,7 +512,7 @@ func TestPermissionDenied(t *testing.T) {
 				Path: llmfs.PathCriteria{Contains: "secretfile"},
 				Type: "file",
 			},
-			Operations: []llmfs.SingleOperation{
+			Operations: []llmfs.SubOperation{
 				{Operation: "read"},
 			},
 		},
@@ -547,7 +547,7 @@ func TestGrantAndRevokeInSameOperation(t *testing.T) {
 				Path: llmfs.PathCriteria{Contains: "somefile"},
 				Type: "file",
 			},
-			Operations: []llmfs.SingleOperation{
+			Operations: []llmfs.SubOperation{
 				{
 					Operation: "write",
 					Permissions: map[string]string{
@@ -597,7 +597,7 @@ func TestPaginationAndSorting(t *testing.T) {
 				Path: llmfs.PathCriteria{Contains: "file"},
 				Type: "file",
 			},
-			Operations: []llmfs.SingleOperation{
+			Operations: []llmfs.SubOperation{
 				{
 					Operation:  "list",
 					Pagination: &llmfs.Pagination{Page: 1, Limit: 2},
@@ -626,7 +626,7 @@ func TestPaginationAndSorting(t *testing.T) {
 				Path: llmfs.PathCriteria{Contains: "file"},
 				Type: "file",
 			},
-			Operations: []llmfs.SingleOperation{
+			Operations: []llmfs.SubOperation{
 				{
 					Operation:  "list",
 					Pagination: &llmfs.Pagination{Page: 2, Limit: 2},
