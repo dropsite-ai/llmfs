@@ -1,4 +1,4 @@
-package e2e_test
+package handlers
 
 import (
 	"bytes"
@@ -14,7 +14,6 @@ import (
 
 	"github.com/dropsite-ai/llmfs"
 	"github.com/dropsite-ai/llmfs/config"
-	"github.com/dropsite-ai/llmfs/handlers"
 	"github.com/dropsite-ai/llmfs/migrate"
 	"github.com/dropsite-ai/sqliteutils/pool"
 	"github.com/dropsite-ai/sqliteutils/test"
@@ -40,7 +39,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 
 	config.Load("../llmfs.yaml")
 
-	ts := httptest.NewServer(handlers.Register(ctx, "root"))
+	ts := httptest.NewServer(Register(ctx, "root"))
 	defer ts.Close()
 
 	// Step 1: Generate a valid root token
@@ -229,7 +228,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 	require.Equal(t, 4, int(written), "expected 4 bytes written")
 
 	//-----------------------------------------------------------------------
-	// New Step 11: Write a file record that references the blob via its URL.
+	// Step 11: Write a file record that references the blob via its URL.
 	// Instead of directly calling GenerateSignedBlobURL, we update a file record
 	// using a write operation. This will extract the blobID from the URL and store
 	// it in the file record.
@@ -258,7 +257,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 	require.Empty(t, res[0].OverallError, "expected file record write to succeed")
 
 	// -----------------------------------------------------------------------
-	// New Step 12: Read back the file record to retrieve the generated BlobURL.
+	// Step 12: Read back the file record to retrieve the generated BlobURL.
 	// The RowToFileRecord function (called during a read) will generate a signed URL
 	// if the record has a valid blob_id.
 	// -----------------------------------------------------------------------
@@ -284,7 +283,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 	require.NotEmpty(t, blobRecord.BlobURL, "expected BlobURL to be set in the file record")
 
 	// -----------------------------------------------------------------------
-	// New Step 13: Use the BlobURL from the file record to download the blob and verify its content.
+	// Step 13: Use the BlobURL from the file record to download the blob and verify its content.
 	// -----------------------------------------------------------------------
 	blobURL := "http://localhost:8080" + blobRecord.BlobURL
 	signedResp := doGET(t, blobURL, testUserToken)
