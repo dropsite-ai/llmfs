@@ -76,23 +76,16 @@ Grab the latest pre-built binaries from the [LLMFS GitHub Releases](https://gith
 
 Choose your preferred deployment:
 
-- **LLMFS Cloud**: Sign up for our managed, zero-ops environment.  
+- **LLMFS Cloud**: [Sign up for our managed, zero-ops environment.](https://llmfs.com/cloud.html)
 - **Self-Hosted**: Spin up your own LLMFS server for complete control over your infrastructure.
+  ```bash
+  ./llmfs -db llmfs.db \
+          -yaml llmfs.yaml \
+          -owner root \
+          -port 8080
+  ```
 
 Once you launch LLMFS, it creates a `llmfs.yaml` configuration containing your root JWT secret. You can also create additional non-root user secrets for multi-user setups.
-
-<details>
-<summary>Self-Hosted Example</summary>
-
-```bash
-./llmfs -db llmfs.db \
-        -yaml llmfs.yaml \
-        -owner root \
-        -port 8080
-```
-
-The server listens on the specified port (8080 in this example).
-</details>
 
 ### Step 2: Integrate Your AI Workflow
 
