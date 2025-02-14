@@ -12,6 +12,12 @@ import (
 	"github.com/dropsite-ai/llmfs/config"
 )
 
+// fileIDPath holds (id, path) for matched records.
+type fileIDPath struct {
+	ID   int64
+	Path string
+}
+
 var FilenameRegexp = regexp.MustCompile(`[^a-zA-Z0-9_\-]`)
 
 func RowToFileRecord(row map[string]interface{}, currentUser string, includeContent bool) FileRecord {
@@ -97,12 +103,6 @@ func AsInt64(v interface{}) int64 {
 		fmt.Printf("Warning: AsInt64 received an unexpected type: %T\n", v)
 		return 0
 	}
-}
-
-// fileIDPath holds (id, path) for matched records.
-type fileIDPath struct {
-	ID   int64
-	Path string
 }
 
 func NilIfEmpty(s string) interface{} {
