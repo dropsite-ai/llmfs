@@ -1,44 +1,52 @@
-# llmfs
+# LLMFS
 
-The Open-Source Virtual Filesystem Built for AI and Humans
+**The Open-Source Virtual Filesystem Built for AI and Human Collaboration**
 
 ---
 
-## Overview
+## Introduction & Overview
 
-LLMFS is a high-performance virtual filesystem server built on SQLite that lets you execute multiple file operations—such as list, read, write, and delete—in a single atomic API call. Designed to cater to both AI systems (LLMs) and human users, LLMFS offers a flexible, secure, and collaborative environment for managing file operations and permissions.
+LLMFS is a high-performance virtual filesystem server built on SQLite that lets you execute multiple file operations in a single atomic API call from your large language model (LLM).
 
 ---
 
 ## Key Features
 
-- **LLM-Optimized Interface:**  
-  A structured JSON API that is both machine-friendly for large language models and intuitive for human operators.
+- **Atomic Operations**  
+  Execute multiple file actions (read, write, delete, list) in a single transaction, ensuring *complete success* or *full rollback*. This design prevents partial updates and guards against data corruption, making your workflows ultra-reliable.
 
-- **Batched Operations:**  
-  Execute multiple filesystem commands within one API call, ensuring atomicity and consistency across all operations.
+- **Granular Permissions**  
+  LLMFS provides JSON-based permission control combined with robust JWT authentication. Enjoy fine-tuned read, write, list, and delete permissions on a per-user or even per-directory basis. This ensures secure, customizable access for any collaboration scenario.
 
-- **User-Centric Data:** Each user owns their own SQLite database, ensuring data isolation and personalized control. Users delegate specific permissions to other LLMFS users, fostering secure collaboration without compromising individual autonomy.
+- **AI-Optimized API**  
+  Specifically designed for large language models and automation scripts, LLMFS’s structured JSON endpoints translate natural language directives into precise filesystem commands—seamlessly integrating with your AI-driven pipelines.
 
-- **Advanced Authentication:**  
-  LLMFS uses a robust, multi-layered JWT authentication system that supports:
-  - **Bare Metal Root Tokens:** Special high-privilege tokens for administrative (root) access.
-  - **User Secrets:** Individual user secrets stored either on the local LLMFS virtual filesystem or managed via an external LLMFS server.
+- **Lightweight & Portable**  
+  Built on SQLite, LLMFS remains lean and easy to deploy—from full-blown cloud servers to compact edge devices. It delivers enterprise-grade performance without unnecessary overhead, making it perfect for agile, distributed deployments.
 
-- **Granular Permission Management:**  
-  Fine-grained access control enables each user to set and modify permissions on their data, ensuring that only authorized operations are performed.
+- **User Isolation**  
+  Each user operates within a dedicated, secure environment. This multi-tenant model keeps data truly isolated while still enabling optional collaboration through explicit permission grants.
 
-- **Transactional Integrity:**  
-  All filesystem operations are executed in a single transaction, guaranteeing that either all operations succeed or none do—thus preventing partial updates and collisions.
+---
+
+## Architecture Highlights
+
+- **Robust Transaction Management**  
+  Every operation is executed within a single transaction, guaranteeing data integrity even in complex, multi-file workflows.
+
+- **Seamless AI Integration**  
+  The system’s API converts natural language instructions into exact filesystem operations, making it a perfect backend for AI-powered applications.
+
+- **Dynamic Security**  
+  With JWT-based authentication and a flexible, JSON-driven permission model, LLMFS provides rigorous, adaptable access control across all types of deployments.
 
 ---
 
 ## Installation
 
-### Homebrew
+### Homebrew (macOS or Compatible)
 
-Install llmfs via Homebrew:
-
+If you use Homebrew, install LLMFS with:
 ```bash
 brew tap dropsite-ai/homebrew-tap
 brew install llmfs
@@ -46,94 +54,124 @@ brew install llmfs
 
 ### Download Binaries
 
-Alternatively, you can [download binaries directly from our releases](https://github.com/dropsite-ai/llmfs/releases).
+Grab the latest pre-built binaries from the [LLMFS GitHub Releases](https://github.com/dropsite-ai/llmfs/releases). Extract them, then run the `llmfs` executable directly.
 
 ### Build from Source
 
-Clone the repository and build using Go:
-
-```bash
-git clone https://github.com/dropsite-ai/llmfs.git
-cd llmfs
-go build -o llmfs cmd/main.go
-```
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/dropsite-ai/llmfs.git
+   cd llmfs
+   ```
+2. **Build using Go**:
+   ```bash
+   go build -o llmfs cmd/main.go
+   ```
 
 ---
 
 ## Getting Started
 
-1. **Start the Server**
+LLMFS is engineered for modern AI workflows—empowering your pipelines with atomic, secure file operations that integrate seamlessly into large language models.
 
-   Run the executable with default settings:
+### Step 1: Launch an Instance
 
+Choose your preferred deployment:
+
+- **LLMFS Cloud**: Sign up for our managed, zero-ops environment.  
+- **Self-Hosted**: Spin up your own LLMFS server for complete control over your infrastructure.
+
+Once you launch LLMFS, it creates a `llmfs.yaml` configuration containing your root JWT secret. You can also create additional non-root user secrets for multi-user setups.
+
+<details>
+<summary>Self-Hosted Example</summary>
+
+```bash
+./llmfs -db llmfs.db \
+        -yaml llmfs.yaml \
+        -owner root \
+        -port 8080
+```
+
+The server listens on the specified port (8080 in this example).
+</details>
+
+### Step 2: Integrate Your AI Workflow
+
+LLMFS is built to work hand-in-hand with AI models:
+
+1. **Retrieve System Instructions & Schemas**  
+   Send a GET request to `/system`:
    ```bash
-   ./llmfs -db llmfs.db -owner root -port 8080
+   curl http://localhost:8080/system \
+        -H "Authorization: Bearer <YOUR_JWT_TOKEN>"
    ```
+   The response provides a “system_instruction” plus JSON schemas—guiding the AI on how to format filesystem operation requests.
 
-   On first run, llmfs will generate a `llmfs.yaml` configuration file containing critical settings (like your root JWT secret).
+2. **Embed in Your AI Pipeline**  
+   Include these instructions and schemas in your large language model’s prompt or function definitions. This ensures the AI understands the exact request/response structure for LLMFS operations.
 
-2. **Explore the Endpoints**
+### Step 3: Execute Operations
 
-   - **`/schema`**  
-     Returns the JSON Schema that defines the structure for batched filesystem operations.
-     
-   - **`/auth`**  
-     Handles JWT authentication for both root and individual user tokens.
-     
-   - **`/perform`**  
-     Executes your batched filesystem operations. This endpoint is protected and requires valid authentication.
+With your instance running and AI integrated, you can now perform atomic file operations:
 
-3. **Example Usage**
-
-   Create a JSON payload that adheres to the schema. For example:
-
+1. **Construct Your JSON Payload**  
+   For example:
    ```json
    [
      {
        "match": {
-         "path": {
-           "contains": "example.txt"
-         },
+         "path": { "contains": "example.txt" },
          "type": "file"
        },
-       "operations": {
-         "read": true
-       }
+       "operations": [
+         { "operation": "read" }
+       ]
      }
    ]
    ```
 
-   Send this payload to the `/perform` endpoint using your favorite HTTP client (e.g., `curl` or Postman).
+2. **Send to `/perform`**  
+   ```bash
+   curl -X POST http://localhost:8080/perform \
+        -H "Authorization: Bearer <YOUR_JWT_TOKEN>" \
+        -H "Content-Type: application/json" \
+        -d @your_request.json
+   ```
+   All sub-operations are processed in a single transaction, ensuring total success or complete rollback.
+
+3. **Binary Files**  
+   Use the `/blobs` endpoint for large file uploads (images, videos, etc.). It supports chunked uploads, partial reads, and more—tailored to handle big files efficiently.
 
 ---
 
 ## Testing
 
-To run the full test suite, execute:
+Run the full test suite with:
 
 ```bash
 make test
 ```
 
-This command will run both unit and integration tests to ensure everything is functioning as expected.
+This executes both unit and integration tests to ensure LLMFS functions correctly in a variety of scenarios.
 
 ---
 
 ## Releasing
 
-To create a new release, simply run:
+To package and create a new release:
 
 ```bash
 make release
 ```
 
-This command automates the release process and packages the latest version of llmfs.
+This automates versioning, tagging, and building binaries for distribution.
 
 ---
 
 ## Contributing
 
-We welcome contributions from the community! Please refer to our [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines on coding standards, testing practices, and the pull request process.
+We warmly welcome community contributions! Refer to [CONTRIBUTING.md](CONTRIBUTING.md) for details on coding standards, testing, and submitting pull requests. Whether you’re fixing a bug, adding a feature, or improving documentation, your input is appreciated.
 
 ---
 
