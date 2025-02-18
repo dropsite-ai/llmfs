@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/dropsite-ai/llmfs"
-	"github.com/dropsite-ai/llmfs/config"
 	"github.com/dropsite-ai/llmfs/migrate"
 	"github.com/dropsite-ai/sqliteutils/pool"
 	"github.com/dropsite-ai/sqliteutils/test"
@@ -37,13 +36,14 @@ func TestEndToEndUserJourney(t *testing.T) {
 	// Run any necessary migrations on startup.
 	migrate.Migrate(ctx)
 
-	config.Load("../llmfs.yaml")
+	// Load config
+	llmfs.LoadConfig("../llmfs.yaml")
 
 	ts := httptest.NewServer(Register(ctx, "root"))
 	defer ts.Close()
 
 	// Step 1: Generate a valid root token
-	rootToken, err := generateJWT("root", config.Cfg.JWTSecret)
+	rootToken, err := generateJWT("root", llmfs.Cfg.JWTSecret)
 	require.NoError(t, err, "failed to generate root token")
 
 	// We will pick a test username, and define a user secret
@@ -285,7 +285,7 @@ func TestEndToEndUserJourney(t *testing.T) {
 	// -----------------------------------------------------------------------
 	// Step 13: Use the BlobURL from the file record to download the blob and verify its content.
 	// -----------------------------------------------------------------------
-	blobURL := "http://localhost:8080" + blobRecord.BlobURL
+	blobURL := ts.URL + blobRecord.BlobURL
 	signedResp := doGET(t, blobURL, testUserToken)
 	defer signedResp.Body.Close()
 	downloadedContent, err := io.ReadAll(signedResp.Body)

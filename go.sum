@@ -1,6 +1,8 @@
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/dropsite-ai/config v0.0.0-20250218003936-5fd7714ccf43 h1:+8pwGFbrdnkthxtD1QdYyKMw4qiWYqeeHY9giSUcqKg=
+github.com/dropsite-ai/config v0.0.0-20250218003936-5fd7714ccf43/go.mod h1:Pyjg8Usb7FZ5+BF/uV7ZUwVjWyu+TiPId3B21TGHqVs=
 github.com/dropsite-ai/sqliteutils v0.0.0-20250211233053-69fac811e93f h1:/yC8G2kkqxuMEpHYrUNl5PyhSC736W49f1d0rgTxsX8=
 github.com/dropsite-ai/sqliteutils v0.0.0-20250211233053-69fac811e93f/go.mod h1:UNR0hdWO9a7Xob3SkaWkoEci4VC1ALwuXotI/vox96Q=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=

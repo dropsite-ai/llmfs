@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/dropsite-ai/llmfs"
-	"github.com/dropsite-ai/llmfs/config"
 	"github.com/dropsite-ai/sqliteutils/exec"
 )
 
@@ -185,7 +184,7 @@ func UploadBlobChunkHandler(w http.ResponseWriter, r *http.Request) {
 // ValidateSignedBlob validates the signature query parameters and returns the blobID.
 // It expects "blob_id", "exp" (expiration as Unix timestamp) and "sig" in the URL query.
 func ValidateSignedBlob(r *http.Request) (int64, error) {
-	secretKey := []byte(config.Cfg.JWTSecret)
+	secretKey := []byte(llmfs.Cfg.JWTSecret)
 	q := r.URL.Query()
 
 	blobIDStr := q.Get("blob_id")

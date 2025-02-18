@@ -1,6 +1,6 @@
 module github.com/dropsite-ai/llmfs
 
-go 1.21.5
+go 1.23.5
 
 require (
 	github.com/dropsite-ai/sqliteutils v0.0.0-20250211233053-69fac811e93f
@@ -13,6 +13,7 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/dropsite-ai/config v0.0.0-20250218003936-5fd7714ccf43 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect

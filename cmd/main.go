@@ -7,7 +7,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/dropsite-ai/llmfs/config"
+	"github.com/dropsite-ai/llmfs"
 	"github.com/dropsite-ai/llmfs/handlers"
 	"github.com/dropsite-ai/llmfs/migrate"
 	"github.com/dropsite-ai/sqliteutils/pool"
@@ -24,12 +24,16 @@ func main() {
 	yamlPath := flag.String("yaml", "./llmfs.yaml", "YAML configuration path")
 	flag.Parse()
 
-	// Load our YAML config.
-	config.Load(*yamlPath)
+	// Load yaml config
+	llmfs.LoadConfig(*yamlPath)
+
+	// Apply flag overrides (if any)
 	if *authFlag != "" {
-		config.Cfg.AuthURL = *authFlag
+		llmfs.Cfg.AuthURL = *authFlag
 	}
-	config.Cfg.OwnerUser = *owner
+	if *owner != "" {
+		llmfs.Cfg.OwnerUser = *owner
+	}
 
 	// Print a banner.
 	logo := color.New(color.FgBlack, color.BgHiCyan).SprintFunc()

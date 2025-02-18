@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/dropsite-ai/llmfs"
-	"github.com/dropsite-ai/llmfs/config"
 	"github.com/golang-jwt/jwt"
 )
 
@@ -86,7 +85,7 @@ func getUserSecret(username string) (string, error) {
 		},
 	}
 
-	results, err := llmfs.PerformFilesystemOperations(ctx, config.Cfg.OwnerUser, config.Cfg.OwnerUser, fsOps)
+	results, err := llmfs.PerformFilesystemOperations(ctx, llmfs.Cfg.OwnerUser, llmfs.Cfg.OwnerUser, fsOps)
 	if err != nil {
 		return "", err
 	}
@@ -123,14 +122,14 @@ func authenticate(tokenStr string) (string, error) {
 	tokenStr = trimBearer(tokenStr)
 
 	// 1) Try to verify using the config secret.
-	if username, err := verifyJWT(tokenStr, config.Cfg.JWTSecret); err == nil && username == "root" {
+	if username, err := verifyJWT(tokenStr, llmfs.Cfg.JWTSecret); err == nil && username == "root" {
 		return "root", nil
 	}
 
 	// 2) Not root => check external auth if configured
-	if config.Cfg.AuthURL != "" {
+	if llmfs.Cfg.AuthURL != "" {
 		client := &http.Client{Timeout: 5 * time.Second}
-		req, err := http.NewRequest("GET", config.Cfg.AuthURL, nil)
+		req, err := http.NewRequest("GET", llmfs.Cfg.AuthURL, nil)
 		if err != nil {
 			return "", err
 		}

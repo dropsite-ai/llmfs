@@ -8,8 +8,6 @@ import (
 	"regexp"
 	"strconv"
 	"time"
-
-	"github.com/dropsite-ai/llmfs/config"
 )
 
 // fileIDPath holds (id, path) for matched records.
@@ -45,7 +43,7 @@ func RowToFileRecord(row map[string]interface{}, currentUser string, includeCont
 }
 
 func GenerateSignedBlobURL(blobID int64, expires time.Time) string {
-	secretKey := []byte(config.Cfg.JWTSecret)
+	secretKey := []byte(Cfg.JWTSecret)
 
 	// Now only embed blobID + expiration in the HMAC
 	base := fmt.Sprintf("%d|%d", blobID, expires.Unix())
