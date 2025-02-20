@@ -21,7 +21,7 @@ var (
 	schemaLoader          gojsonschema.JSONLoader // For validating incoming requests (/perform)
 )
 
-func Register(ctx context.Context, owner string) http.Handler {
+func Register(ctx context.Context) http.Handler {
 	// Preload and parse the input schema (function_input_schema.json).
 	inputSchemaBytes, err := schemaFS.ReadFile("schema/perform_request.json")
 	if err != nil {
@@ -72,7 +72,7 @@ func Register(ctx context.Context, owner string) http.Handler {
 	mux.HandleFunc("/auth", AuthHandler)
 
 	// /perform endpoint: validated by the preloaded input schema.
-	mux.Handle("/perform", AuthMiddleware(http.HandlerFunc(performHandler(ctx, owner))))
+	mux.Handle("/perform", AuthMiddleware(http.HandlerFunc(performHandler(ctx))))
 
 	// Provide /ok status endpoint.
 	mux.Handle("/ok", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

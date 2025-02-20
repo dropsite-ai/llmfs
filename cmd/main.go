@@ -17,23 +17,14 @@ import (
 func main() {
 	// Flags.
 	dbPath := flag.String("db", "llmfs.db", "SQLite database path")
-	owner := flag.String("owner", "root", "Database owner username")
-	authFlag := flag.String("auth", "", "Authentication URL")
 	poolSize := flag.Int("pool", 1, "Size of DB pool")
 	httpPort := flag.Int("port", 8080, "HTTP port to listen on")
 	yamlPath := flag.String("yaml", "./llmfs.yaml", "YAML configuration path")
 	flag.Parse()
 
-	// Load yaml config
+	// Load (and save) yaml config
 	llmfs.LoadConfig(*yamlPath)
-
-	// Apply flag overrides (if any)
-	if *authFlag != "" {
-		llmfs.Cfg.AuthURL = *authFlag
-	}
-	if *owner != "" {
-		llmfs.Cfg.OwnerUser = *owner
-	}
+	llmfs.SaveConfig(*yamlPath)
 
 	// Print a banner.
 	logo := color.New(color.FgBlack, color.BgHiCyan).SprintFunc()
@@ -56,7 +47,7 @@ func main() {
 	migrate.Migrate(ctx)
 
 	// Prepare our HTTP handlers.
-	mux := handlers.Register(ctx, *owner)
+	mux := handlers.Register(ctx)
 
 	addr := fmt.Sprintf(":%d", *httpPort)
 	log.Printf("Server listening on %d", *httpPort)

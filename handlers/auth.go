@@ -85,7 +85,7 @@ func getUserSecret(username string) (string, error) {
 		},
 	}
 
-	results, err := llmfs.PerformFilesystemOperations(ctx, llmfs.Cfg.OwnerUser, llmfs.Cfg.OwnerUser, fsOps)
+	results, err := llmfs.PerformFilesystemOperations(ctx, "root", fsOps)
 	if err != nil {
 		return "", err
 	}
@@ -122,14 +122,14 @@ func authenticate(tokenStr string) (string, error) {
 	tokenStr = trimBearer(tokenStr)
 
 	// 1) Try to verify using the config secret.
-	if username, err := verifyJWT(tokenStr, llmfs.Cfg.JWTSecret); err == nil && username == "root" {
+	if username, err := verifyJWT(tokenStr, llmfs.Variables.Secrets["root"]); err == nil && username == "root" {
 		return "root", nil
 	}
 
 	// 2) Not root => check external auth if configured
-	if llmfs.Cfg.AuthURL != "" {
+	if llmfs.AuthEndpoint != "" {
 		client := &http.Client{Timeout: 5 * time.Second}
-		req, err := http.NewRequest("GET", llmfs.Cfg.AuthURL, nil)
+		req, err := http.NewRequest("GET", llmfs.AuthEndpoint, nil)
 		if err != nil {
 			return "", err
 		}

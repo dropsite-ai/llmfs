@@ -8,10 +8,11 @@ import (
 	"net/http"
 
 	"github.com/dropsite-ai/llmfs"
+	callbacks "github.com/dropsite-ai/llmfs/callback"
 	"github.com/xeipuuv/gojsonschema"
 )
 
-func performHandler(ctx context.Context, owner string) func(w http.ResponseWriter, r *http.Request) {
+func performHandler(ctx context.Context) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		bodyBytes, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -51,7 +52,7 @@ func performHandler(ctx context.Context, owner string) func(w http.ResponseWrite
 		}
 
 		// Perform the filesystem operations.
-		results, err := llmfs.PerformFilesystemOperations(ctx, currentUser, owner, operations)
+		results, err := callbacks.PerformFilesystemOpsWithCallbacks(ctx, currentUser, operations)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("PerformFilesystemOperations error: %v", err), http.StatusInternalServerError)
 			return

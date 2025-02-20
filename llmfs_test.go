@@ -444,7 +444,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 			insertTestFile(t, ctx, "/topdir", true, "Root directory", "", `{"alice":"wrld"}`)
 			insertTestFile(t, ctx, "/topdir/file1.txt", false, "File #1", "hello world", `{"alice":"rld"}`)
 
-			results, err := llmfs.PerformFilesystemOperations(ctx, "alice", "owner", tc.operations)
+			results, err := llmfs.PerformFilesystemOperations(ctx, "alice", tc.operations)
 			require.NoError(t, err, "PerformFilesystemOperations should not error")
 
 			tc.checkFn(t, results)
@@ -478,7 +478,7 @@ func TestNoMatches(t *testing.T) {
 			},
 		},
 	}
-	results, err := llmfs.PerformFilesystemOperations(ctx, "alice", "owner", input)
+	results, err := llmfs.PerformFilesystemOperations(ctx, "alice", input)
 	require.NoError(t, err)
 
 	require.Len(t, results, 1)
@@ -517,7 +517,7 @@ func TestPermissionDenied(t *testing.T) {
 			},
 		},
 	}
-	results, err := llmfs.PerformFilesystemOperations(ctx, "bob", "owner", input)
+	results, err := llmfs.PerformFilesystemOperations(ctx, "bob", input)
 	require.NoError(t, err)
 
 	require.Len(t, results, 1)
@@ -559,7 +559,7 @@ func TestGrantAndRevokeInSameOperation(t *testing.T) {
 		},
 	}
 
-	results, err := llmfs.PerformFilesystemOperations(ctx, "alice", "owner", input)
+	results, err := llmfs.PerformFilesystemOperations(ctx, "alice", input)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 
@@ -606,7 +606,7 @@ func TestPaginationAndSorting(t *testing.T) {
 			},
 		},
 	}
-	results, err := llmfs.PerformFilesystemOperations(ctx, "alice", "owner", input)
+	results, err := llmfs.PerformFilesystemOperations(ctx, "alice", input)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	topRes := results[0]
@@ -635,7 +635,7 @@ func TestPaginationAndSorting(t *testing.T) {
 			},
 		},
 	}
-	results2, err2 := llmfs.PerformFilesystemOperations(ctx, "alice", "owner", input2)
+	results2, err2 := llmfs.PerformFilesystemOperations(ctx, "alice", input2)
 	require.NoError(t, err2)
 	require.Len(t, results2, 1)
 	topRes2 := results2[0]

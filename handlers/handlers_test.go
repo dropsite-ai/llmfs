@@ -39,11 +39,11 @@ func TestEndToEndUserJourney(t *testing.T) {
 	// Load config
 	llmfs.LoadConfig("../llmfs.yaml")
 
-	ts := httptest.NewServer(Register(ctx, "root"))
+	ts := httptest.NewServer(Register(ctx))
 	defer ts.Close()
 
 	// Step 1: Generate a valid root token
-	rootToken, err := generateJWT("root", llmfs.Cfg.JWTSecret)
+	rootToken, err := generateJWT("root", llmfs.Variables.Secrets["root"])
 	require.NoError(t, err, "failed to generate root token")
 
 	// We will pick a test username, and define a user secret

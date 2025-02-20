@@ -3,24 +3,12 @@ package llmfs
 import (
 	"context"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/dropsite-ai/config"
 	"github.com/dropsite-ai/sqliteutils/exec"
 )
-
-// Config is the application config loaded from YAML.
-type Config struct {
-	JWTSecret string `yaml:"jwt_secret"` // ends with "Secret" => auto-generate if empty
-	OwnerUser string `yaml:"owner_user"` // ends with "User" => validated
-	AuthURL   string `yaml:"auth_url"`   // ends with "URL" => validated
-}
-
-// Cfg is the global in-memory copy of the loaded config.
-var Cfg Config
 
 // SubOperation corresponds to one sub-operation within the "operations" array
 // under each top-level FilesystemOperation in the new JSON schema.
@@ -127,11 +115,10 @@ type FileRecord struct {
 func PerformFilesystemOperations(
 	ctx context.Context,
 	currentUser string,
-	ownerUser string,
 	operations []FilesystemOperation,
 ) ([]OperationResult, error) {
 
-	isOwner := (currentUser == ownerUser)
+	isOwner := (currentUser == "root")
 	results := make([]OperationResult, 0, len(operations))
 
 	for i, topOp := range operations {
@@ -765,17 +752,4 @@ func BuildNewPath(parentDir, rel string) string {
 		p += "/"
 	}
 	return p + strings.TrimPrefix(rel, "/")
-}
-
-func LoadConfig(yamlPath string) {
-	var err error
-
-	// Define default config
-	defaultCfg := Config{OwnerUser: "root"}
-
-	// Load (or create) the YAML file using the new config library.
-	Cfg, err = config.Load(yamlPath, defaultCfg)
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
 }

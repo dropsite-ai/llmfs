@@ -43,7 +43,7 @@ func RowToFileRecord(row map[string]interface{}, currentUser string, includeCont
 }
 
 func GenerateSignedBlobURL(blobID int64, expires time.Time) string {
-	secretKey := []byte(Cfg.JWTSecret)
+	secretKey := []byte(Variables.Secrets["root"])
 
 	// Now only embed blobID + expiration in the HMAC
 	base := fmt.Sprintf("%d|%d", blobID, expires.Unix())
