@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -304,6 +305,9 @@ func TestEndToEndUserJourney(t *testing.T) {
 //----------------------------------------------------------------------------------
 
 func generateJWT(username, secret string) (string, error) {
+	if secret == "" {
+		return "", errors.New("empty secret")
+	}
 	claims := jwt.MapClaims{
 		"username": username,
 		"exp":      time.Now().Add(1 * time.Hour).Unix(),

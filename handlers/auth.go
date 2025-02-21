@@ -38,6 +38,9 @@ func trimBearer(token string) string {
 
 // verifyJWT validates a JWT token string using the given secret and returns the "username" claim.
 func verifyJWT(tokenStr, secret string) (string, error) {
+	if secret == "" {
+		return "", errors.New("empty secret")
+	}
 	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
