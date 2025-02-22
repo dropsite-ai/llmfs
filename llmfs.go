@@ -32,11 +32,12 @@ type FilesystemOperation struct {
 
 // SubOperationResult captures the result of a single sub-operation (e.g., one item in "operations").
 type SubOperationResult struct {
-	SubOpIndex  int          `json:"sub_op_index"`
-	Error       string       `json:"error,omitempty"`
-	Results     []FileRecord `json:"results,omitempty"`
-	WriteCount  int64        `json:"write_count,omitempty"`
-	DeleteCount int64        `json:"delete_count,omitempty"`
+	SubOpIndex int          `json:"sub_op_index"`
+	Name       string       `json:"name,omitempty"`
+	Changes    int          `json:"changes,omitempty"`
+	Updated    *FileUpdate  `json:"updated,omitempty"`
+	Results    []FileRecord `json:"results,omitempty"`
+	Error      string       `json:"error,omitempty"`
 }
 
 // OperationResult corresponds to the outcome of one top-level array element in the request.
@@ -106,6 +107,13 @@ type FileRecord struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// FileUpdate represents a single file or directory that was created, updated, or deleted.
+type FileUpdate struct {
+	Name string `json:"name,omitempty"` // "create", "update", "delete"
+	Type string `json:"type,omitempty"` // "file" or "directory"
+	Path string `json:"path"`
+}
+
 // ------------------------------------------------------------------
 // PerformFilesystemOperations
 // ------------------------------------------------------------------
@@ -134,7 +142,10 @@ func PerformFilesystemOperations(
 		// For each sub-op, find matches (with sub-op pagination/sort if applicable),
 		// build queries, and accumulate them.
 		for j, subOp := range topOp.Operations {
-			subRes := SubOperationResult{SubOpIndex: j}
+			subRes := SubOperationResult{
+				SubOpIndex: j,
+				Name:       subOp.Operation,
+			}
 
 			// 1) find matching paths for this subOp (applies subOp pagination/sort)
 			matched, err := findMatchingPaths(ctx, topOp.Match, subOp.Pagination, subOp.Sort)
@@ -176,7 +187,9 @@ func PerformFilesystemOperations(
 			// The queries embed :op_idx and :sub_op_idx so we know where to route each row
 			opIdxVal, _ := row["op_idx"].(int64)
 			subOpIdxVal, _ := row["sub_op_idx"].(int64)
+			subOpType, _ := row["sub_op_type"].(string)
 			opType, _ := row["op_type"].(string)
+			count, _ := row["cnt"].(int64)
 
 			// Must check bounds
 			if int(opIdxVal) == i && int(subOpIdxVal) >= 0 && int(subOpIdxVal) < len(opRes.SubOpResults) {
@@ -188,13 +201,14 @@ func PerformFilesystemOperations(
 				case "read":
 					fr := RowToFileRecord(row, currentUser, true)
 					subRes.Results = append(subRes.Results, fr)
-				case "delete":
-					if cnt, ok := row["cnt"].(int64); ok {
-						subRes.DeleteCount += cnt
-					}
-				case "write":
-					if cnt, ok := row["cnt"].(int64); ok {
-						subRes.WriteCount += cnt
+				case "create", "delete", "update":
+					if updatedPath, ok := row["path"].(string); ok {
+						subRes.Changes = int(count)
+						subRes.Updated = &FileUpdate{
+							Name: opType,
+							Path: updatedPath,
+							Type: subOpType,
+						}
 					}
 				}
 			}
@@ -269,13 +283,16 @@ func buildSubOperationQueries(
 		}
 
 	case "delete":
-		dq, dp := buildDeleteQuery(matched, opIndex, subOpIndex)
+		dq, dp := buildDeleteQuery(matched, subOp, opIndex, subOpIndex)
 		queries = append(queries, dq...)
 		params = append(params, dp...)
 
 	case "write":
 		// Build the "write" queries
-		wq, wp := buildWriteQuery(matched, match, subOp, opIndex, subOpIndex)
+		wq, wp, err := buildWriteQuery(ctx, matched, match, subOp, opIndex, subOpIndex)
+		if err != nil {
+			return nil, nil, err
+		}
 		queries = append(queries, wq...)
 		params = append(params, wp...)
 	}
@@ -344,40 +361,44 @@ WHERE id IN (%s);
 // ------------------------------------------------------------------
 
 // buildDeleteQuery returns queries for deleting all matched rows (and then selecting changes()).
-func buildDeleteQuery(matched []fileIDPath, opIndex, subOpIndex int) ([]string, []map[string]interface{}) {
+func buildDeleteQuery(matched []fileIDPath, subOp SubOperation, opIndex, subOpIndex int) ([]string, []map[string]interface{}) {
 	if len(matched) == 0 {
 		return nil, nil
 	}
 
-	placeholders := make([]string, len(matched))
-	idParams := map[string]interface{}{
-		":op_idx":     opIndex,
-		":sub_op_idx": subOpIndex,
-	}
-	for i, m := range matched {
-		ph := fmt.Sprintf(":id%d", i)
-		placeholders[i] = ph
-		idParams[ph] = m.ID
-	}
-	idList := strings.Join(placeholders, ", ")
+	var queries []string
+	var paramsList []map[string]interface{}
 
-	delQuery := fmt.Sprintf(`
+	for _, m := range matched {
+		delQuery := `
 DELETE FROM filesystem
-WHERE id IN (%s);
-`, idList)
+WHERE id = :id;`
+		delParams := map[string]interface{}{":id": m.ID}
 
-	// Then we select the count of changes
-	changesQuery := `
-SELECT :op_idx AS op_idx,
-       :sub_op_idx AS sub_op_idx,
-       'delete' AS op_type,
-       changes() AS cnt;
-`
+		queries = append(queries, delQuery)
+		paramsList = append(paramsList, delParams)
 
-	return []string{delQuery, changesQuery}, []map[string]interface{}{idParams, {
-		":op_idx":     opIndex,
-		":sub_op_idx": subOpIndex,
-	}}
+		// Then we select the count of changes
+		changesQuery := `
+SELECT :path AS path,
+	:op_idx AS op_idx,
+	:sub_op_idx AS sub_op_idx,
+	:sub_opt_type AS sub_op_type,
+	'delete' AS op_type,
+	changes() AS cnt;`
+
+		changesParams := map[string]interface{}{
+			":path":         m.Path,
+			":op_idx":       opIndex,
+			":sub_op_idx":   subOpIndex,
+			":sub_opt_type": subOp.Type,
+		}
+
+		queries = append(queries, changesQuery)
+		paramsList = append(paramsList, changesParams)
+	}
+
+	return queries, paramsList
 }
 
 // ------------------------------------------------------------------
@@ -387,11 +408,12 @@ SELECT :op_idx AS op_idx,
 // buildWriteQuery handles "write" sub-ops: creating/updating files or directories, plus setting permissions.
 // Modified signature: pass in the original match criteria.
 func buildWriteQuery(
+	ctx context.Context,
 	matched []fileIDPath,
 	match MatchCriteria,
 	subOp SubOperation,
 	opIndex, subOpIndex int,
-) ([]string, []map[string]interface{}) {
+) ([]string, []map[string]interface{}, error) {
 	var queries []string
 	var paramsList []map[string]interface{}
 
@@ -449,15 +471,19 @@ VALUES (
 		paramsList = append(paramsList, insertParams)
 
 		changesQ := `
-SELECT :op_idx AS op_idx,
-		 :sub_op_idx AS sub_op_idx,
-		 'write' AS op_type,
-		 changes() AS cnt;
+SELECT :path AS path, 
+	:op_idx AS op_idx,
+	:sub_op_idx AS sub_op_idx,
+	:sub_opt_type AS sub_op_type,
+	'create' AS op_type,
+	changes() AS cnt;
 `
 		queries = append(queries, changesQ)
 		paramsList = append(paramsList, map[string]interface{}{
-			":op_idx":     opIndex,
-			":sub_op_idx": subOpIndex,
+			":path":         newPath,
+			":op_idx":       opIndex,
+			":sub_op_idx":   subOpIndex,
+			":sub_opt_type": subOp.Type,
 		})
 
 		// Optionally process permissions.
@@ -474,45 +500,45 @@ SELECT :op_idx AS op_idx,
 				}
 			}
 		}
-		return queries, paramsList
+		return queries, paramsList, nil
 	}
 
 	// Otherwise, if matches were found, follow the existing update logic.
 	if subOp.RelativePath == "" {
 		// Updating existing matched items.
-		placeholders := make([]string, len(matched))
-		updateParams := map[string]interface{}{
-			":desc":       NilIfEmpty(subOp.Description),
-			":cnt":        NilIfEmpty(contentStr),
-			":blob_id":    blobID,
-			":op_idx":     opIndex,
-			":sub_op_idx": subOpIndex,
-		}
-		for i, m := range matched {
-			ph := fmt.Sprintf(":id%d", i)
-			placeholders[i] = ph
-			updateParams[ph] = m.ID
-		}
-		idList := strings.Join(placeholders, ", ")
-		updateQ := fmt.Sprintf(`
+		for _, m := range matched {
+			updateQ := `
 UPDATE filesystem
 SET description = CASE WHEN :desc IS NOT NULL THEN :desc ELSE description END,
 	content     = CASE WHEN :cnt IS NOT NULL THEN :cnt ELSE content END,
 	blob_id     = CASE WHEN :blob_id IS NOT NULL THEN :blob_id ELSE blob_id END,
 	updated_at  = CURRENT_TIMESTAMP
-WHERE id IN (%s);
-`, idList)
-		changesQ := `
-SELECT :op_idx AS op_idx,
-		 :sub_op_idx AS sub_op_idx,
-		 'write' AS op_type,
-		 changes() AS cnt;
+WHERE id = :id;
 `
-		queries = append(queries, updateQ, changesQ)
-		paramsList = append(paramsList, updateParams, map[string]interface{}{
-			":op_idx":     opIndex,
-			":sub_op_idx": subOpIndex,
-		})
+			updateParams := map[string]interface{}{
+				":id":         m.ID,
+				":desc":       NilIfEmpty(subOp.Description),
+				":cnt":        NilIfEmpty(contentStr),
+				":blob_id":    blobID,
+				":op_idx":     opIndex,
+				":sub_op_idx": subOpIndex,
+			}
+			changesQ := `
+SELECT :path AS path,
+	:op_idx AS op_idx,
+	:sub_op_idx AS sub_op_idx,
+	:sub_opt_type AS sub_op_type,
+	'update' AS op_type,
+	changes() AS cnt;
+`
+			queries = append(queries, updateQ, changesQ)
+			paramsList = append(paramsList, updateParams, map[string]interface{}{
+				":path":         m.Path,
+				":op_idx":       opIndex,
+				":sub_op_idx":   subOpIndex,
+				":sub_opt_type": subOp.Type,
+			})
+		}
 
 		// Process permissions if provided.
 		if len(subOp.Permissions) > 0 {
@@ -534,14 +560,63 @@ SELECT :op_idx AS op_idx,
 		// Creating a new file under each matched directory.
 		for _, m := range matched {
 			newChildPath := BuildNewPath(m.Path, subOp.RelativePath)
-			insertParams := map[string]interface{}{
-				":path":    newChildPath,
-				":dir":     isDir,
-				":desc":    NilIfEmpty(subOp.Description),
-				":cnt":     NilIfEmpty(contentStr),
-				":blob_id": blobID,
+
+			// First, check if a file at newChildPath already exists.
+			var exists bool
+			selectQ := `SELECT 1 FROM filesystem WHERE path = :path LIMIT 1;`
+			selectParams := map[string]interface{}{":path": newChildPath}
+			err := exec.Exec(ctx, selectQ, selectParams, func(_ int, row map[string]interface{}) {
+				exists = true
+			})
+			if err != nil {
+				return nil, nil, err
 			}
-			insertQ := `
+
+			if exists {
+				// File exists: run an UPDATE.
+				updateQ := `
+UPDATE filesystem
+SET description = CASE WHEN :desc IS NOT NULL THEN :desc ELSE description END,
+    content     = CASE WHEN :cnt IS NOT NULL THEN :cnt ELSE content END,
+    blob_id     = CASE WHEN :blob_id IS NOT NULL THEN :blob_id ELSE blob_id END,
+    updated_at  = CURRENT_TIMESTAMP
+WHERE path = :path;
+`
+				updateParams := map[string]interface{}{
+					":path":       newChildPath,
+					":desc":       NilIfEmpty(subOp.Description),
+					":cnt":        NilIfEmpty(contentStr),
+					":blob_id":    blobID,
+					":op_idx":     opIndex,
+					":sub_op_idx": subOpIndex,
+				}
+				queries = append(queries, updateQ)
+				paramsList = append(paramsList, updateParams)
+				changesQ := `
+SELECT :path AS path,
+	:op_idx AS op_idx,
+	:sub_op_idx AS sub_op_idx,
+	:sub_opt_type AS sub_op_type,
+	'update' AS op_type,
+	changes() AS cnt;
+`
+				queries = append(queries, changesQ)
+				paramsList = append(paramsList, map[string]interface{}{
+					":path":         newChildPath,
+					":op_idx":       opIndex,
+					":sub_op_idx":   subOpIndex,
+					":sub_opt_type": subOp.Type,
+				})
+			} else {
+				// File does not exist: perform an INSERT.
+				insertParams := map[string]interface{}{
+					":path":    newChildPath,
+					":dir":     isDir,
+					":desc":    NilIfEmpty(subOp.Description),
+					":cnt":     NilIfEmpty(contentStr),
+					":blob_id": blobID,
+				}
+				insertQ := `
 INSERT INTO filesystem (
 	path, is_directory, description, content, blob_id, permissions,
 	created_at, updated_at
@@ -553,26 +628,28 @@ VALUES (
 	:blob_id,
 	'{}',
 	CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-)
-ON CONFLICT(path) DO UPDATE SET
-	description = CASE WHEN :desc IS NOT NULL THEN :desc ELSE description END,
-	content     = CASE WHEN :cnt IS NOT NULL THEN :cnt ELSE content END,
-	blob_id     = CASE WHEN :blob_id IS NOT NULL THEN :blob_id ELSE blob_id END,
-	updated_at  = CURRENT_TIMESTAMP;
+);
 `
-			queries = append(queries, insertQ)
-			paramsList = append(paramsList, insertParams)
-			changesQ := `
-SELECT :op_idx AS op_idx,
-		 :sub_op_idx AS sub_op_idx,
-		 'write' AS op_type,
-		 changes() AS cnt;
+				queries = append(queries, insertQ)
+				paramsList = append(paramsList, insertParams)
+				changesQ := `
+SELECT :path AS path,
+	:op_idx AS op_idx,
+	:sub_op_idx AS sub_op_idx,
+	:sub_opt_type AS sub_op_type,
+	'create' AS op_type,
+	changes() AS cnt;
 `
-			queries = append(queries, changesQ)
-			paramsList = append(paramsList, map[string]interface{}{
-				":op_idx":     opIndex,
-				":sub_op_idx": subOpIndex,
-			})
+				queries = append(queries, changesQ)
+				paramsList = append(paramsList, map[string]interface{}{
+					":path":         newChildPath,
+					":op_idx":       opIndex,
+					":sub_op_idx":   subOpIndex,
+					":sub_opt_type": subOp.Type,
+				})
+			}
+
+			// Process permissions if provided.
 			if len(subOp.Permissions) > 0 {
 				for user, level := range subOp.Permissions {
 					if level == "" {
@@ -588,7 +665,7 @@ SELECT :op_idx AS op_idx,
 			}
 		}
 	}
-	return queries, paramsList
+	return queries, paramsList, nil
 }
 
 // ------------------------------------------------------------------

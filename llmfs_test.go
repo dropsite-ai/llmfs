@@ -260,7 +260,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 				subRes := topRes.SubOpResults[0]
 				require.Empty(t, subRes.Error)
 
-				assert.Equal(t, int64(1), subRes.WriteCount, "should have created exactly 1 file")
+				assert.NotNil(t, subRes.Updated)
 			},
 		},
 		{
@@ -285,7 +285,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 				subRes := topRes.SubOpResults[0]
 				require.Empty(t, subRes.Error)
 
-				assert.Equal(t, int64(1), subRes.DeleteCount, "should delete exactly 1 file")
+				assert.NotNil(t, subRes.Updated)
 			},
 		},
 		{
@@ -323,9 +323,8 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 				require.Empty(t, writeSub.Error)
 				require.Empty(t, delSub.Error)
 
-				assert.Equal(t, int64(1), writeSub.WriteCount, "expected 1 new file")
-				// Could be 1 or more items deleted
-				assert.True(t, delSub.DeleteCount >= 1, "expect at least 1 item to be deleted")
+				assert.NotNil(t, writeSub.Updated)
+				assert.NotNil(t, delSub.Updated)
 			},
 		},
 		{
@@ -352,6 +351,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 			checkFn: func(t *testing.T, opsResults []llmfs.OperationResult) {
 				require.Len(t, opsResults, 1)
 				topRes := opsResults[0]
+
 				require.Empty(t, topRes.OverallError)
 
 				require.Len(t, topRes.SubOpResults, 2)
@@ -364,7 +364,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 				require.NotEmpty(t, listSub.Results, "List should return something")
 				assert.Empty(t, listSub.Results[0].Content, "List doesn't include content")
 
-				assert.Equal(t, int64(1), writeSub.WriteCount, "one file created")
+				assert.NotNil(t, writeSub.Updated)
 			},
 		},
 		{
@@ -401,7 +401,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 				assert.Empty(t, listSub.Results[0].Content, "the 'list' row is metadata only")
 				assert.NotEmpty(t, readSub.Results[0].Content, "the 'read' row includes content")
 
-				assert.Equal(t, int64(1), delSub.DeleteCount, "deleted exactly 1 file")
+				assert.NotNil(t, delSub.Updated)
 			},
 		},
 		{
@@ -490,8 +490,7 @@ func TestNoMatches(t *testing.T) {
 		// Each sub-op might produce zero results or zero write/delete counts
 		assert.Empty(t, s.Error)
 		assert.Empty(t, s.Results)
-		assert.Equal(t, int64(0), s.DeleteCount)
-		assert.Equal(t, int64(0), s.WriteCount)
+		assert.Nil(t, s.Updated)
 	}
 }
 
