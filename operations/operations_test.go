@@ -71,6 +71,7 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 				topRes := opsResults[0]
 				require.Empty(t, topRes.OverallError)
 
+				// We have exactly 1 sub-op
 				require.Len(t, topRes.SubOpResults, 1)
 				subRes := topRes.SubOpResults[0]
 				require.Empty(t, subRes.Error)
@@ -80,7 +81,268 @@ func TestPerformFilesystemOperations_Coverage(t *testing.T) {
 				assert.Empty(t, subRes.Results[0].Content, "List-only should not return content")
 			},
 		},
-		// ... other sub-tests from your table ...
+		{
+			name: "Read only on file1",
+			operations: []types.FilesystemOperation{
+				{
+					Match: types.MatchCriteria{
+						Path: types.PathCriteria{Contains: "file1"},
+						Type: "file",
+					},
+					Operations: []types.SubOperation{
+						{Operation: "read"},
+					},
+				},
+			},
+			checkFn: func(t *testing.T, opsResults []types.OperationResult) {
+				require.Len(t, opsResults, 1)
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
+
+				require.Len(t, topRes.SubOpResults, 1)
+				subRes := topRes.SubOpResults[0]
+				require.Empty(t, subRes.Error)
+
+				require.Len(t, subRes.Results, 1)
+				assert.Equal(t, "hello world", subRes.Results[0].Content)
+			},
+		},
+		{
+			name: "List+Read on file1 => expect 2 sub-ops",
+			operations: []types.FilesystemOperation{
+				{
+					Match: types.MatchCriteria{
+						Path: types.PathCriteria{Contains: "file1"},
+						Type: "file",
+					},
+					Operations: []types.SubOperation{
+						{Operation: "list"},
+						{Operation: "read"},
+					},
+				},
+			},
+			checkFn: func(t *testing.T, opsResults []types.OperationResult) {
+				require.Len(t, opsResults, 1)
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
+
+				require.Len(t, topRes.SubOpResults, 2, "list + read => 2 sub-ops")
+
+				listSub := topRes.SubOpResults[0]
+				readSub := topRes.SubOpResults[1]
+				require.Empty(t, listSub.Error)
+				require.Empty(t, readSub.Error)
+
+				require.Len(t, listSub.Results, 1, "list should return 1 matching file")
+				require.Len(t, readSub.Results, 1, "read should return 1 matching file")
+				assert.Empty(t, listSub.Results[0].Content, "list doesn't include content")
+				assert.Equal(t, "hello world", readSub.Results[0].Content, "read does include content")
+			},
+		},
+		{
+			name: "Write (create) a new file under /topdir",
+			operations: []types.FilesystemOperation{
+				{
+					Match: types.MatchCriteria{
+						Type: "directory",
+						Path: types.PathCriteria{
+							Exactly: "/topdir",
+						},
+					},
+					Operations: []types.SubOperation{
+						{
+							Operation:    "write",
+							RelativePath: "newfile.txt",
+							Description:  "Newly created file",
+							Content: &types.ContentPayload{
+								Content: "some new content",
+							},
+							Permissions: map[string]string{"bob": "r"},
+						},
+					},
+				},
+			},
+			checkFn: func(t *testing.T, opsResults []types.OperationResult) {
+				require.Len(t, opsResults, 1)
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
+
+				require.Len(t, topRes.SubOpResults, 1)
+				subRes := topRes.SubOpResults[0]
+				require.Empty(t, subRes.Error)
+
+				assert.NotNil(t, subRes.Updated)
+			},
+		},
+		{
+			name: "Delete file1",
+			operations: []types.FilesystemOperation{
+				{
+					Match: types.MatchCriteria{
+						Path: types.PathCriteria{Contains: "file1"},
+						Type: "file",
+					},
+					Operations: []types.SubOperation{
+						{Operation: "delete"},
+					},
+				},
+			},
+			checkFn: func(t *testing.T, opsResults []types.OperationResult) {
+				require.Len(t, opsResults, 1)
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
+
+				require.Len(t, topRes.SubOpResults, 1)
+				subRes := topRes.SubOpResults[0]
+				require.Empty(t, subRes.Error)
+
+				assert.NotNil(t, subRes.Updated)
+			},
+		},
+		{
+			name: "Write + Delete in one operation (2 sub-ops)",
+			operations: []types.FilesystemOperation{
+				{
+					Match: types.MatchCriteria{
+						Path: types.PathCriteria{Contains: "topdir"},
+						Type: "directory",
+					},
+					Operations: []types.SubOperation{
+						{
+							Operation:    "write",
+							RelativePath: "tempfile.txt",
+							Description:  "File created then quickly removed",
+							Content: &types.ContentPayload{
+								Content: "Some ephemeral content",
+							},
+						},
+						{
+							Operation: "delete",
+						},
+					},
+				},
+			},
+			checkFn: func(t *testing.T, opsResults []types.OperationResult) {
+				require.Len(t, opsResults, 1)
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
+
+				require.Len(t, topRes.SubOpResults, 2)
+				writeSub := topRes.SubOpResults[0]
+				delSub := topRes.SubOpResults[1]
+
+				require.Empty(t, writeSub.Error)
+				require.Empty(t, delSub.Error)
+
+				assert.NotNil(t, writeSub.Updated)
+				assert.NotNil(t, delSub.Updated)
+			},
+		},
+		{
+			name: "List + Write in one operation",
+			operations: []types.FilesystemOperation{
+				{
+					Match: types.MatchCriteria{
+						Path: types.PathCriteria{Contains: "topdir"},
+						Type: "directory",
+					},
+					Operations: []types.SubOperation{
+						{Operation: "list"},
+						{
+							Operation:    "write",
+							RelativePath: "anotherfile.txt",
+							Description:  "Example file created in the same op as List",
+							Content: &types.ContentPayload{
+								Content: "Hello from List+Write test",
+							},
+						},
+					},
+				},
+			},
+			checkFn: func(t *testing.T, opsResults []types.OperationResult) {
+				require.Len(t, opsResults, 1)
+				topRes := opsResults[0]
+
+				require.Empty(t, topRes.OverallError)
+
+				require.Len(t, topRes.SubOpResults, 2)
+				listSub := topRes.SubOpResults[0]
+				writeSub := topRes.SubOpResults[1]
+
+				require.Empty(t, listSub.Error)
+				require.Empty(t, writeSub.Error)
+
+				require.NotEmpty(t, listSub.Results, "List should return something")
+				assert.Empty(t, listSub.Results[0].Content, "List doesn't include content")
+
+				assert.NotNil(t, writeSub.Updated)
+			},
+		},
+		{
+			name: "List + Read + Delete in one operation",
+			operations: []types.FilesystemOperation{
+				{
+					Match: types.MatchCriteria{
+						Path: types.PathCriteria{Contains: "file1"},
+						Type: "file",
+					},
+					Operations: []types.SubOperation{
+						{Operation: "list"},
+						{Operation: "read"},
+						{Operation: "delete"},
+					},
+				},
+			},
+			checkFn: func(t *testing.T, opsResults []types.OperationResult) {
+				require.Len(t, opsResults, 1)
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
+
+				require.Len(t, topRes.SubOpResults, 3)
+				listSub := topRes.SubOpResults[0]
+				readSub := topRes.SubOpResults[1]
+				delSub := topRes.SubOpResults[2]
+
+				require.Empty(t, listSub.Error)
+				require.Empty(t, readSub.Error)
+				require.Empty(t, delSub.Error)
+
+				require.Len(t, listSub.Results, 1, "List sub-op should have 1 result for file1")
+				require.Len(t, readSub.Results, 1, "Read sub-op should have 1 result for file1")
+				assert.Empty(t, listSub.Results[0].Content, "the 'list' row is metadata only")
+				assert.NotEmpty(t, readSub.Results[0].Content, "the 'read' row includes content")
+
+				assert.NotNil(t, delSub.Updated)
+			},
+		},
+		{
+			name: "Pagination test: limit to 1 result per page",
+			operations: []types.FilesystemOperation{
+				{
+					Match: types.MatchCriteria{
+						Path: types.PathCriteria{Contains: "file"},
+						Type: "file",
+					},
+					Operations: []types.SubOperation{
+						{
+							Operation:  "list",
+							Pagination: &types.Pagination{Page: 1, Limit: 1},
+							Sort:       &types.Sort{Field: "path", Direction: "asc"},
+						},
+					},
+				},
+			},
+			checkFn: func(t *testing.T, opsResults []types.OperationResult) {
+				require.Len(t, opsResults, 1)
+				topRes := opsResults[0]
+				require.Empty(t, topRes.OverallError)
+
+				require.Len(t, topRes.SubOpResults, 1)
+				subRes := topRes.SubOpResults[0]
+				require.Empty(t, subRes.Error)
+				require.Len(t, subRes.Results, 1, "limit=1 => exactly 1 item returned")
+			},
+		},
 	}
 
 	// Run all subtests, each with a fresh DB
