@@ -159,7 +159,7 @@ func TestPerformFilesystemOpsWithCallbacks(t *testing.T) {
 	forcePreError, forcePostError = false, false
 	requests = nil // reset
 
-	results, err := PerformFilesystemOpsWithCallbacks(ctx, "alice", ops)
+	results, err := PerformFilesystemOpsWithCallbacks(ctx, "root", ops)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 
@@ -207,7 +207,7 @@ func TestPerformFilesystemOpsWithCallbacks(t *testing.T) {
 	forcePreError, forcePostError = true, false
 	requests = nil
 
-	results2, err2 := PerformFilesystemOpsWithCallbacks(ctx, "alice", ops)
+	results2, err2 := PerformFilesystemOpsWithCallbacks(ctx, "root", ops)
 	require.NoError(t, err2)
 	require.Len(t, results2, 1)
 
@@ -231,7 +231,7 @@ func TestPerformFilesystemOpsWithCallbacks(t *testing.T) {
 	forcePreError, forcePostError = false, true
 	requests = nil
 
-	results3, err3 := PerformFilesystemOpsWithCallbacks(ctx, "alice", ops)
+	results3, err3 := PerformFilesystemOpsWithCallbacks(ctx, "root", ops)
 	require.NoError(t, err3)
 	require.Len(t, results3, 1)
 
