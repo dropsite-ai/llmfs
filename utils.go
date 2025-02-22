@@ -10,12 +10,6 @@ import (
 	"time"
 )
 
-// fileIDPath holds (id, path) for matched records.
-type fileIDPath struct {
-	ID   int64
-	Path string
-}
-
 var FilenameRegexp = regexp.MustCompile(`[^a-zA-Z0-9_\-]`)
 
 func RowToFileRecord(row map[string]interface{}, currentUser string, includeContent bool) FileRecord {

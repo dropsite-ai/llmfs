@@ -1,5 +1,3 @@
-// callbacks/callbacks.go
-
 package callbacks
 
 import (

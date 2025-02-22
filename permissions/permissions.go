@@ -1,4 +1,4 @@
-package llmfs
+package permissions
 
 import (
 	"context"
@@ -8,6 +8,56 @@ import (
 
 	"github.com/dropsite-ai/sqliteutils/exec"
 )
+
+// ------------------------------------------------------------------
+// Permission Grant/Revoke Helper Queries
+// ------------------------------------------------------------------
+
+func BuildGrantPermissionQuery(
+	path, username, level string,
+	opIndex, subOpIndex int,
+) ([]string, []map[string]interface{}) {
+	query := `
+UPDATE filesystem
+SET permissions = json_set(
+    CASE WHEN json_valid(permissions) THEN permissions ELSE json_object() END,
+    :json_key, :json_val
+),
+updated_at = CURRENT_TIMESTAMP
+WHERE path = :path;
+`
+	params := map[string]interface{}{
+		":json_key":   fmt.Sprintf("$.%s", username),
+		":json_val":   level,
+		":path":       path,
+		":op_idx":     opIndex,
+		":sub_op_idx": subOpIndex,
+	}
+	// We can do a SELECT changes() if needed, or not. For brevity, skip.
+	return []string{query}, []map[string]interface{}{params}
+}
+
+func BuildRevokePermissionQuery(
+	path, username string,
+	opIndex, subOpIndex int,
+) ([]string, []map[string]interface{}) {
+	query := `
+UPDATE filesystem
+SET permissions = json_remove(
+    CASE WHEN json_valid(permissions) THEN permissions ELSE json_object() END,
+    :json_key
+),
+updated_at = CURRENT_TIMESTAMP
+WHERE path = :path;
+`
+	params := map[string]interface{}{
+		":json_key":   fmt.Sprintf("$.%s", username),
+		":path":       path,
+		":op_idx":     opIndex,
+		":sub_op_idx": subOpIndex,
+	}
+	return []string{query}, []map[string]interface{}{params}
+}
 
 // HasPermission checks if 'user' has all letters in 'required' at 'path' or inherited from a parent path.
 // E.g. required="r" -> user must have 'r'; required="rl" -> user must have 'r' and 'l', etc.

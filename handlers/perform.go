@@ -8,7 +8,7 @@ import (
 	"net/http"
 
 	"github.com/dropsite-ai/llmfs"
-	callbacks "github.com/dropsite-ai/llmfs/callback"
+	"github.com/dropsite-ai/llmfs/callbacks"
 	"github.com/xeipuuv/gojsonschema"
 )
 

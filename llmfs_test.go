@@ -125,11 +125,6 @@ func TestHelperFunctions(t *testing.T) {
 		s := EscapeSingleQuotes("John's doc")
 		require.Equal(t, "John''s doc", s)
 	})
-
-	t.Run("ReverseString", func(t *testing.T) {
-		r := llmfs.ReverseString("abc")
-		require.Equal(t, "cba", r)
-	})
 }
 
 // TestPerformFilesystemOperations_Coverage runs through a table of multi-op scenarios.

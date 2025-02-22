@@ -1,12 +1,12 @@
-package llmfs
+package fts
 
 import (
 	"fmt"
 	"strings"
 )
 
-// buildFTSMatchQuery returns a sub-select for an FTS table, matching 'searchTerm*'.
-func buildFTSMatchQuery(tableName, column, searchTerm, paramKey string) (string, map[string]interface{}) {
+// BuildFTSMatchQuery returns a sub-select for an FTS table, matching 'searchTerm*'.
+func BuildFTSMatchQuery(tableName, column, searchTerm, paramKey string) (string, map[string]interface{}) {
 	// Build the match value as: "search term"*
 	paramValue := fmt.Sprintf("\"%s\"*", searchTerm)
 	// Use the provided key with a colon prefix in the query.
@@ -17,8 +17,8 @@ func buildFTSMatchQuery(tableName, column, searchTerm, paramKey string) (string,
 	return query, params
 }
 
-// buildMatchIntersectionQuery returns a combined subquery (with INTERSECT) and a parameters map.
-func buildMatchIntersectionQuery(
+// BuildMatchIntersectionQuery returns a combined subquery (with INTERSECT) and a parameters map.
+func BuildMatchIntersectionQuery(
 	pathExactly, pathContains, pathBegins, pathEnds,
 	descContains, contentContains string,
 ) (string, map[string]interface{}) {
@@ -40,7 +40,7 @@ func buildMatchIntersectionQuery(
 	}
 	if pathContains != "" {
 		key := newKey()
-		q, p := buildFTSMatchQuery("filesystem_word_fts", "path", pathContains, key)
+		q, p := BuildFTSMatchQuery("filesystem_word_fts", "path", pathContains, key)
 		subqueries = append(subqueries, q)
 		for k, v := range p {
 			params[k] = v
@@ -48,7 +48,7 @@ func buildMatchIntersectionQuery(
 	}
 	if pathBegins != "" {
 		key := newKey()
-		q, p := buildFTSMatchQuery("filesystem_path_fts", "path", pathBegins, key)
+		q, p := BuildFTSMatchQuery("filesystem_path_fts", "path", pathBegins, key)
 		subqueries = append(subqueries, q)
 		for k, v := range p {
 			params[k] = v
@@ -57,7 +57,7 @@ func buildMatchIntersectionQuery(
 	if pathEnds != "" {
 		key := newKey()
 		// Reverse the search term for the reverse index.
-		q, p := buildFTSMatchQuery("filesystem_rev_path_fts", "reversed_path", ReverseString(pathEnds), key)
+		q, p := BuildFTSMatchQuery("filesystem_rev_path_fts", "reversed_path", ReverseString(pathEnds), key)
 		subqueries = append(subqueries, q)
 		for k, v := range p {
 			params[k] = v
@@ -65,7 +65,7 @@ func buildMatchIntersectionQuery(
 	}
 	if descContains != "" {
 		key := newKey()
-		q, p := buildFTSMatchQuery("filesystem_word_fts", "description", descContains, key)
+		q, p := BuildFTSMatchQuery("filesystem_word_fts", "description", descContains, key)
 		subqueries = append(subqueries, q)
 		for k, v := range p {
 			params[k] = v
@@ -73,7 +73,7 @@ func buildMatchIntersectionQuery(
 	}
 	if contentContains != "" {
 		key := newKey()
-		q, p := buildFTSMatchQuery("filesystem_word_fts", "content", contentContains, key)
+		q, p := BuildFTSMatchQuery("filesystem_word_fts", "content", contentContains, key)
 		subqueries = append(subqueries, q)
 		for k, v := range p {
 			params[k] = v
