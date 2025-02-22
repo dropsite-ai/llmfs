@@ -7,8 +7,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/dropsite-ai/llmfs"
 	"github.com/dropsite-ai/llmfs/callbacks"
+	t "github.com/dropsite-ai/llmfs/types"
 	"github.com/xeipuuv/gojsonschema"
 )
 
@@ -38,7 +38,7 @@ func performHandler(ctx context.Context) func(w http.ResponseWriter, r *http.Req
 		}
 
 		// If valid, unmarshal into our operations slice.
-		var operations []llmfs.FilesystemOperation
+		var operations []t.FilesystemOperation
 		if err = json.Unmarshal(bodyBytes, &operations); err != nil {
 			http.Error(w, fmt.Sprintf("JSON unmarshal error: %v", err), http.StatusBadRequest)
 			return

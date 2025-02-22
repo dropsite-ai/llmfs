@@ -1,4 +1,4 @@
-package llmfs
+package utils
 
 import (
 	"crypto/hmac"
@@ -8,12 +8,15 @@ import (
 	"regexp"
 	"strconv"
 	"time"
+
+	"github.com/dropsite-ai/llmfs/config"
+	t "github.com/dropsite-ai/llmfs/types"
 )
 
 var FilenameRegexp = regexp.MustCompile(`[^a-zA-Z0-9_\-]`)
 
-func RowToFileRecord(row map[string]interface{}, currentUser string, includeContent bool) FileRecord {
-	fr := FileRecord{
+func RowToFileRecord(row map[string]interface{}, currentUser string, includeContent bool) t.FileRecord {
+	fr := t.FileRecord{
 		ID:          AsInt64(row["id"]),
 		Path:        AsString(row["path"]),
 		IsDirectory: (AsInt64(row["is_directory"]) == 1),
@@ -37,7 +40,7 @@ func RowToFileRecord(row map[string]interface{}, currentUser string, includeCont
 }
 
 func GenerateSignedBlobURL(blobID int64, expires time.Time) string {
-	secretKey := []byte(Variables.Secrets["root"])
+	secretKey := []byte(config.Variables.Secrets["root"])
 
 	// Now only embed blobID + expiration in the HMAC
 	base := fmt.Sprintf("%d|%d", blobID, expires.Unix())
@@ -95,11 +98,4 @@ func AsInt64(v interface{}) int64 {
 		fmt.Printf("Warning: AsInt64 received an unexpected type: %T\n", v)
 		return 0
 	}
-}
-
-func NilIfEmpty(s string) interface{} {
-	if s == "" {
-		return nil
-	}
-	return s
 }

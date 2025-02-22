@@ -1,13 +1,15 @@
-package llmfs
+package operations
 
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/dropsite-ai/llmfs/fts"
 	"github.com/dropsite-ai/llmfs/permissions"
+	"github.com/dropsite-ai/llmfs/queries"
+	t "github.com/dropsite-ai/llmfs/types"
+	"github.com/dropsite-ai/llmfs/utils"
 	"github.com/dropsite-ai/sqliteutils/exec"
 )
 
@@ -16,16 +18,16 @@ import (
 func PerformFilesystemOperations(
 	ctx context.Context,
 	currentUser string,
-	operations []FilesystemOperation,
-) ([]OperationResult, error) {
+	operations []t.FilesystemOperation,
+) ([]t.OperationResult, error) {
 
 	isOwner := (currentUser == "root")
-	results := make([]OperationResult, 0, len(operations))
+	results := make([]t.OperationResult, 0, len(operations))
 
 	for i, topOp := range operations {
-		opRes := OperationResult{
+		opRes := t.OperationResult{
 			OperationIndex: i,
-			SubOpResults:   make([]SubOperationResult, len(topOp.Operations)),
+			SubOpResults:   make([]t.SubOperationResult, len(topOp.Operations)),
 		}
 
 		// We gather all queries for all sub-ops, so they run in a single transaction for this top-level item.
@@ -35,7 +37,7 @@ func PerformFilesystemOperations(
 		// For each sub-op, find matches (with sub-op pagination/sort if applicable),
 		// build queries, and accumulate them.
 		for j, subOp := range topOp.Operations {
-			subRes := SubOperationResult{
+			subRes := t.SubOperationResult{
 				SubOpIndex: j,
 				Name:       subOp.Operation,
 			}
@@ -50,7 +52,7 @@ func PerformFilesystemOperations(
 			}
 
 			if len(matched) == 0 && subOp.Operation == "write" && topOp.Match.Path.Exactly != "" {
-				matched = []FileIDPath{{ID: 0, Path: topOp.Match.Path.Exactly}}
+				matched = []t.FileIDPath{{ID: 0, Path: topOp.Match.Path.Exactly}}
 			}
 
 			// 2) build the necessary queries
@@ -92,15 +94,15 @@ func PerformFilesystemOperations(
 				subRes := &opRes.SubOpResults[subOpIdxVal]
 				switch opType {
 				case "list":
-					fr := RowToFileRecord(row, currentUser, false)
+					fr := utils.RowToFileRecord(row, currentUser, false)
 					subRes.Results = append(subRes.Results, fr)
 				case "read":
-					fr := RowToFileRecord(row, currentUser, true)
+					fr := utils.RowToFileRecord(row, currentUser, true)
 					subRes.Results = append(subRes.Results, fr)
 				case "create", "delete", "update":
 					if updatedPath, ok := row["path"].(string); ok {
 						subRes.Changes = int(count)
-						subRes.Updated = &FileUpdate{
+						subRes.Updated = &t.FileUpdate{
 							Name: opType,
 							Path: updatedPath,
 							Type: subOpType,
@@ -124,8 +126,8 @@ func PerformFilesystemOperations(
 // It does the permission checks, then calls the appropriate helper(s) to build queries.
 func BuildSubOperationQueries(
 	ctx context.Context,
-	subOp SubOperation,
-	matched []FileIDPath,
+	subOp t.SubOperation,
+	matched []t.FileIDPath,
 	opIndex int,
 	subOpIndex int,
 	currentUser string,
@@ -161,16 +163,16 @@ func BuildSubOperationQueries(
 
 	switch subOp.Operation {
 	case "delete":
-		return buildDeleteQuery(finalMatched, subOp, opIndex, subOpIndex)
+		return queries.BuildDeleteQuery(finalMatched, subOp, opIndex, subOpIndex)
 
 	case "list":
-		return buildListOrReadQuery(finalMatched, opIndex, subOpIndex, false)
+		return queries.BuildListOrReadQuery(finalMatched, opIndex, subOpIndex, false)
 
 	case "read":
-		return buildListOrReadQuery(finalMatched, opIndex, subOpIndex, true)
+		return queries.BuildListOrReadQuery(finalMatched, opIndex, subOpIndex, true)
 
 	case "write":
-		return buildWriteQuery(finalMatched, subOp, opIndex, subOpIndex)
+		return queries.BuildWriteQuery(finalMatched, subOp, opIndex, subOpIndex)
 	}
 
 	return []string{}, []map[string]interface{}{}, nil
@@ -180,10 +182,10 @@ func BuildSubOperationQueries(
 // We updated it so it accepts subOp pagination/sort.
 func findMatchingPaths(
 	ctx context.Context,
-	match MatchCriteria,
-	pagination *Pagination,
-	sort *Sort,
-) ([]FileIDPath, error) {
+	match t.MatchCriteria,
+	pagination *t.Pagination,
+	sort *t.Sort,
+) ([]t.FileIDPath, error) {
 
 	// 1) Build the subquery for path/desc/content FTS matches:
 	subquery, subParams := fts.BuildMatchIntersectionQuery(
@@ -196,7 +198,7 @@ func findMatchingPaths(
 	)
 	if subquery == "" {
 		// No match constraints => likely return empty or everything. Let's return empty here.
-		return []FileIDPath{}, nil
+		return []t.FileIDPath{}, nil
 	}
 
 	var whereClauses []string
@@ -252,11 +254,11 @@ JOIN matched_ids m ON m.id = f.id
 		finalQuery += "\n" + limitOffset
 	}
 
-	var matched []FileIDPath
+	var matched []t.FileIDPath
 	err := exec.Exec(ctx, finalQuery, subParams, func(_ int, row map[string]interface{}) {
 		idVal, _ := row["id"].(int64)
 		pathVal, _ := row["path"].(string)
-		matched = append(matched, FileIDPath{ID: idVal, Path: pathVal})
+		matched = append(matched, t.FileIDPath{ID: idVal, Path: pathVal})
 	})
 	if err != nil {
 		return nil, err
@@ -267,214 +269,6 @@ JOIN matched_ids m ON m.id = f.id
 	// Omitted here for brevity.
 
 	return matched, nil
-}
-
-// buildListOrReadQuery returns a SELECT for either "list" (no content) or "read" (with content).
-// We embed `:op_idx, :sub_op_idx, 'list'/'read' as op_type`.
-func buildListOrReadQuery(paths []FileIDPath, opIndex, subOpIndex int, includeContent bool) ([]string, []map[string]interface{}, error) {
-	if len(paths) == 0 {
-		return nil, nil, nil
-	}
-	placeholders := make([]string, len(paths))
-	params := map[string]interface{}{
-		":op_idx":     opIndex,
-		":sub_op_idx": subOpIndex,
-	}
-
-	for i, p := range paths {
-		ph := fmt.Sprintf(":id%d", i)
-		placeholders[i] = ph
-		params[ph] = p.ID
-	}
-	idList := strings.Join(placeholders, ", ")
-
-	opType := "list"
-	selectCols := "id, path, is_directory, description, created_at, updated_at"
-	if includeContent {
-		opType = "read"
-		selectCols += ", content, blob_id"
-	}
-
-	query := fmt.Sprintf(`
-SELECT :op_idx AS op_idx,
-       :sub_op_idx AS sub_op_idx,
-       '%s' AS op_type,
-       %s
-FROM filesystem
-WHERE id IN (%s);
-`, opType, selectCols, idList)
-
-	return []string{query}, []map[string]interface{}{params}, nil
-}
-
-// ------------------------------------------------------------------
-// Delete Queries
-// ------------------------------------------------------------------
-
-// buildDeleteQuery returns queries for deleting all matched rows (and then selecting changes()).
-func buildDeleteQuery(
-	paths []FileIDPath,
-	subOp SubOperation,
-	opIndex, subOpIndex int,
-) ([]string, []map[string]interface{}, error) {
-
-	if len(paths) == 0 {
-		return nil, nil, nil
-	}
-
-	var queries []string
-	var paramsList []map[string]interface{}
-
-	for _, p := range paths {
-		delQ := `DELETE FROM filesystem WHERE id=:id;`
-		delParams := map[string]interface{}{":id": p.ID}
-		queries = append(queries, delQ)
-		paramsList = append(paramsList, delParams)
-
-		// Then capture changes() so we can see how many rows got deleted, etc.
-		changesQ := `
-SELECT :path AS path,
-       :op_idx AS op_idx,
-       :sub_op_idx AS sub_op_idx,
-       :sub_opt_type AS sub_op_type,
-       'delete' AS op_type,
-       changes() AS cnt;`
-		cParams := map[string]interface{}{
-			":path":         p.Path,
-			":op_idx":       opIndex,
-			":sub_op_idx":   subOpIndex,
-			":sub_opt_type": subOp.Type,
-		}
-		queries = append(queries, changesQ)
-		paramsList = append(paramsList, cParams)
-	}
-
-	return queries, paramsList, nil
-}
-
-// buildWriteQuery handles "write" sub-ops: creating/updating files or directories, plus setting permissions.
-// Modified signature: pass in the original match criteria.
-func buildWriteQuery(
-	paths []FileIDPath, // fully expanded already
-	subOp SubOperation,
-	opIndex, subOpIndex int,
-) ([]string, []map[string]interface{}, error) {
-	var queries []string
-	var paramsList []map[string]interface{}
-
-	contentStr := ""
-	var blobID *int64
-	if subOp.Content != nil {
-		if subOp.Content.URL != "" && strings.HasPrefix(subOp.Content.URL, "llmfs://blob/") {
-			blobStr := strings.TrimPrefix(subOp.Content.URL, "llmfs://blob/")
-			if parsed, err := strconv.ParseInt(blobStr, 10, 64); err == nil && parsed > 0 {
-				blobID = &parsed
-			}
-		}
-		if subOp.Content.Content != "" && blobID == nil {
-			contentStr = subOp.Content.Content
-		}
-	}
-
-	isDir := 0
-	if subOp.Type == "directory" {
-		isDir = 1
-	}
-
-	for _, p := range paths {
-		if p.ID == 0 {
-			insertParams := map[string]interface{}{
-				":path":    p.Path,
-				":dir":     isDir,
-				":desc":    NilIfEmpty(subOp.Description),
-				":cnt":     NilIfEmpty(contentStr),
-				":blob_id": blobID,
-			}
-			insertQ := `
-INSERT INTO filesystem (
-	path, is_directory, description, content, blob_id, permissions,
-	created_at, updated_at
-)
-VALUES (
-	:path, :dir,
-	CASE WHEN :desc IS NOT NULL THEN :desc ELSE '' END,
-	CASE WHEN :cnt IS NOT NULL THEN :cnt ELSE '' END,
-	:blob_id,
-	'{}',
-	CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-);
-`
-			queries = append(queries, insertQ)
-			paramsList = append(paramsList, insertParams)
-
-			changesQ := `
-SELECT :path AS path, 
-	:op_idx AS op_idx,
-	:sub_op_idx AS sub_op_idx,
-	:sub_opt_type AS sub_op_type,
-	'create' AS op_type,
-	changes() AS cnt;
-`
-			queries = append(queries, changesQ)
-			paramsList = append(paramsList, map[string]interface{}{
-				":path":         p.Path,
-				":op_idx":       opIndex,
-				":sub_op_idx":   subOpIndex,
-				":sub_opt_type": subOp.Type,
-			})
-		} else {
-			updateQ := `
-UPDATE filesystem
-SET description = CASE WHEN :desc IS NOT NULL THEN :desc ELSE description END,
-    content     = CASE WHEN :cnt IS NOT NULL THEN :cnt ELSE content END,
-    blob_id     = CASE WHEN :blob_id IS NOT NULL THEN :blob_id ELSE blob_id END,
-    updated_at  = CURRENT_TIMESTAMP
-WHERE path = :path;
-`
-			updateParams := map[string]interface{}{
-				":path":       p.Path,
-				":desc":       NilIfEmpty(subOp.Description),
-				":cnt":        NilIfEmpty(contentStr),
-				":blob_id":    blobID,
-				":op_idx":     opIndex,
-				":sub_op_idx": subOpIndex,
-			}
-			queries = append(queries, updateQ)
-			paramsList = append(paramsList, updateParams)
-			changesQ := `
-SELECT :path AS path,
-	:op_idx AS op_idx,
-	:sub_op_idx AS sub_op_idx,
-	:sub_opt_type AS sub_op_type,
-	'update' AS op_type,
-	changes() AS cnt;
-`
-			queries = append(queries, changesQ)
-			paramsList = append(paramsList, map[string]interface{}{
-				":path":         p.Path,
-				":op_idx":       opIndex,
-				":sub_op_idx":   subOpIndex,
-				":sub_opt_type": subOp.Type,
-			})
-		}
-
-		// Optionally process permissions.
-		if len(subOp.Permissions) > 0 {
-			for user, level := range subOp.Permissions {
-				if level == "" {
-					rq, rp := permissions.BuildRevokePermissionQuery(p.Path, user, opIndex, subOpIndex)
-					queries = append(queries, rq...)
-					paramsList = append(paramsList, rp...)
-				} else {
-					gq, gp := permissions.BuildGrantPermissionQuery(p.Path, user, level, opIndex, subOpIndex)
-					queries = append(queries, gq...)
-					paramsList = append(paramsList, gp...)
-				}
-			}
-		}
-	}
-
-	return queries, paramsList, nil
 }
 
 // BuildNewPath combines "parentDir" + "relativePath" with correct slashes.
@@ -493,9 +287,9 @@ func BuildNewPath(parentDir, rel string) string {
 // you should operate on. If subOp.RelativePath is empty, it just returns `matched` as-is.
 func expandPathsForSubOp(
 	ctx context.Context,
-	matched []FileIDPath,
-	subOp SubOperation,
-) ([]FileIDPath, error) {
+	matched []t.FileIDPath,
+	subOp t.SubOperation,
+) ([]t.FileIDPath, error) {
 
 	// If no relative path is given, we effectively operate on the matched set itself,
 	// but we can still do a type-check filter if subOp.Type is specified.
@@ -504,7 +298,7 @@ func expandPathsForSubOp(
 			return matched, nil
 		}
 		wantDir := (subOp.Type == "directory")
-		filtered := make([]FileIDPath, 0, len(matched))
+		filtered := make([]t.FileIDPath, 0, len(matched))
 		for _, m := range matched {
 			isDir, err := lookupIsDirectory(ctx, m.ID)
 			if err != nil {
@@ -519,7 +313,7 @@ func expandPathsForSubOp(
 
 	// Otherwise, we have a relative path that we want to append to each matched item.
 	// We'll see if it exists or not. If subOp.Operation == "write", we allow "nonexistent => create".
-	finalPaths := make([]FileIDPath, 0, len(matched))
+	finalPaths := make([]t.FileIDPath, 0, len(matched))
 	wantDir := (subOp.Type == "directory")
 
 	for _, m := range matched {
@@ -530,7 +324,7 @@ func expandPathsForSubOp(
 			// Child doesn’t exist
 			if subOp.Operation == "write" {
 				// For a write, it’s valid to create it. Mark ID=0 => signals "INSERT".
-				finalPaths = append(finalPaths, FileIDPath{ID: 0, Path: childPath})
+				finalPaths = append(finalPaths, t.FileIDPath{ID: 0, Path: childPath})
 				continue
 			} else {
 				// For list/read/delete, either skip or treat it as an error.
@@ -544,7 +338,7 @@ func expandPathsForSubOp(
 			continue
 		}
 
-		finalPaths = append(finalPaths, FileIDPath{ID: rowID, Path: childPath})
+		finalPaths = append(finalPaths, t.FileIDPath{ID: rowID, Path: childPath})
 	}
 	return finalPaths, nil
 }
@@ -558,8 +352,8 @@ func lookupPathIDAndDir(ctx context.Context, path string) (int64, bool, error) {
 	var isDir bool
 	var found bool
 	err := exec.Exec(ctx, query, params, func(_ int, row map[string]interface{}) {
-		id = AsInt64(row["id"])
-		isDir = (AsInt64(row["is_directory"]) == 1)
+		id = utils.AsInt64(row["id"])
+		isDir = (utils.AsInt64(row["is_directory"]) == 1)
 		found = true
 	})
 	if err != nil {
@@ -578,7 +372,7 @@ func lookupIsDirectory(ctx context.Context, id int64) (bool, error) {
 	var foundDir bool
 	var found bool
 	err := exec.Exec(ctx, query, params, func(_ int, row map[string]interface{}) {
-		foundDir = (AsInt64(row["is_directory"]) == 1)
+		foundDir = (utils.AsInt64(row["is_directory"]) == 1)
 		found = true
 	})
 	if err != nil {
@@ -591,7 +385,7 @@ func lookupIsDirectory(ctx context.Context, id int64) (bool, error) {
 }
 
 // CheckPermissionsForAll ensures user has 'required' perms on *all* matched paths.
-func CheckPermissionsForAll(ctx context.Context, user string, matched []FileIDPath, required string) error {
+func CheckPermissionsForAll(ctx context.Context, user string, matched []t.FileIDPath, required string) error {
 	for _, item := range matched {
 		can, err := permissions.HasPermission(ctx, user, item.Path, required)
 		if err != nil {

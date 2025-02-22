@@ -1,4 +1,4 @@
-package llmfs
+package types
 
 import "time"
 

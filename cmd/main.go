@@ -7,7 +7,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/dropsite-ai/llmfs"
+	"github.com/dropsite-ai/llmfs/config"
 	"github.com/dropsite-ai/llmfs/handlers"
 	"github.com/dropsite-ai/llmfs/migrate"
 	"github.com/dropsite-ai/sqliteutils/pool"
@@ -23,8 +23,8 @@ func main() {
 	flag.Parse()
 
 	// Load (and save) yaml config
-	llmfs.LoadConfig(*yamlPath)
-	llmfs.SaveConfig(*yamlPath)
+	config.LoadConfig(*yamlPath)
+	config.SaveConfig(*yamlPath)
 
 	// Print a banner.
 	logo := color.New(color.FgBlack, color.BgHiCyan).SprintFunc()

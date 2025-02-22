@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dropsite-ai/llmfs"
+	"github.com/dropsite-ai/llmfs/config"
+	"github.com/dropsite-ai/llmfs/operations"
+	t "github.com/dropsite-ai/llmfs/types"
 	"github.com/golang-jwt/jwt"
 )
 
@@ -72,15 +74,15 @@ func getUserSecret(username string) (string, error) {
 	userPath := fmt.Sprintf("/llmfs/users/%s.json", username)
 
 	// Build a single FilesystemOperation with a 'read' sub-operation
-	fsOps := []llmfs.FilesystemOperation{
+	fsOps := []t.FilesystemOperation{
 		{
-			Match: llmfs.MatchCriteria{
+			Match: t.MatchCriteria{
 				Type: "file",
-				Path: llmfs.PathCriteria{
+				Path: t.PathCriteria{
 					Exactly: userPath,
 				},
 			},
-			Operations: []llmfs.SubOperation{
+			Operations: []t.SubOperation{
 				{
 					Operation: "read",
 				},
@@ -88,7 +90,7 @@ func getUserSecret(username string) (string, error) {
 		},
 	}
 
-	results, err := llmfs.PerformFilesystemOperations(ctx, "root", fsOps)
+	results, err := operations.PerformFilesystemOperations(ctx, "root", fsOps)
 	if err != nil {
 		return "", err
 	}
@@ -125,14 +127,14 @@ func authenticate(tokenStr string) (string, error) {
 	tokenStr = trimBearer(tokenStr)
 
 	// 1) Try to verify using the config secret.
-	if username, err := verifyJWT(tokenStr, llmfs.Variables.Secrets["root"]); err == nil && username == "root" {
+	if username, err := verifyJWT(tokenStr, config.Variables.Secrets["root"]); err == nil && username == "root" {
 		return "root", nil
 	}
 
 	// 2) Not root => check external auth if configured
-	if llmfs.AuthEndpoint != "" {
+	if config.AuthEndpoint != "" {
 		client := &http.Client{Timeout: 5 * time.Second}
-		req, err := http.NewRequest("GET", llmfs.AuthEndpoint, nil)
+		req, err := http.NewRequest("GET", config.AuthEndpoint, nil)
 		if err != nil {
 			return "", err
 		}

@@ -11,7 +11,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/dropsite-ai/llmfs"
+	"github.com/dropsite-ai/llmfs/config"
+	"github.com/dropsite-ai/llmfs/utils"
 	"github.com/dropsite-ai/sqliteutils/exec"
 )
 
@@ -58,7 +59,7 @@ func InitiateBlobUploadHandler(w http.ResponseWriter, r *http.Request) {
 	`
 	usageParams := map[string]interface{}{":uname": currentUser}
 	err := exec.Exec(r.Context(), usageQuery, usageParams, func(_ int, row map[string]interface{}) {
-		totalBytes = llmfs.AsInt64(row["total_bytes"])
+		totalBytes = utils.AsInt64(row["total_bytes"])
 	})
 	if err != nil {
 		http.Error(w, "DB error checking usage: "+err.Error(), http.StatusInternalServerError)
@@ -134,7 +135,7 @@ func UploadBlobChunkHandler(w http.ResponseWriter, r *http.Request) {
 	query := "SELECT username FROM blobs WHERE id = :id LIMIT 1;"
 	params := map[string]interface{}{":id": blobID}
 	err = exec.Exec(r.Context(), query, params, func(_ int, row map[string]interface{}) {
-		owner = llmfs.AsString(row["username"])
+		owner = utils.AsString(row["username"])
 	})
 	if err != nil {
 		http.Error(w, "DB error verifying blob owner: "+err.Error(), http.StatusInternalServerError)
@@ -184,7 +185,7 @@ func UploadBlobChunkHandler(w http.ResponseWriter, r *http.Request) {
 // ValidateSignedBlob validates the signature query parameters and returns the blobID.
 // It expects "blob_id", "exp" (expiration as Unix timestamp) and "sig" in the URL query.
 func ValidateSignedBlob(r *http.Request) (int64, error) {
-	secretKey := []byte(llmfs.Variables.Secrets["root"])
+	secretKey := []byte(config.Variables.Secrets["root"])
 	q := r.URL.Query()
 
 	blobIDStr := q.Get("blob_id")
@@ -240,8 +241,8 @@ func GetSignedBlobHandler(w http.ResponseWriter, r *http.Request) {
 	metaQuery := "SELECT mime_type, username FROM blobs WHERE id = :id LIMIT 1;"
 	metaParams := map[string]interface{}{":id": blobID}
 	err = exec.Exec(r.Context(), metaQuery, metaParams, func(_ int, row map[string]interface{}) {
-		mimeType = llmfs.AsString(row["mime_type"])
-		owner = llmfs.AsString(row["username"])
+		mimeType = utils.AsString(row["mime_type"])
+		owner = utils.AsString(row["username"])
 	})
 	if err != nil {
 		http.Error(w, "DB error retrieving blob metadata: "+err.Error(), http.StatusInternalServerError)

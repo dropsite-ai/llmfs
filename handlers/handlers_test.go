@@ -13,8 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dropsite-ai/llmfs"
+	"github.com/dropsite-ai/llmfs/config"
 	"github.com/dropsite-ai/llmfs/migrate"
+	"github.com/dropsite-ai/llmfs/types"
 	"github.com/dropsite-ai/sqliteutils/pool"
 	"github.com/dropsite-ai/sqliteutils/test"
 	"github.com/golang-jwt/jwt" // or jwt/v4
@@ -38,13 +39,13 @@ func TestEndToEndUserJourney(t *testing.T) {
 	migrate.Migrate(ctx)
 
 	// Load config
-	llmfs.LoadConfig("../llmfs.yaml")
+	config.LoadConfig("../llmfs.yaml")
 
 	ts := httptest.NewServer(Register(ctx))
 	defer ts.Close()
 
 	// Step 1: Generate a valid root token
-	rootToken, err := generateJWT("root", llmfs.Variables.Secrets["root"])
+	rootToken, err := generateJWT("root", config.Variables.Secrets["root"])
 	require.NoError(t, err, "failed to generate root token")
 
 	// We will pick a test username, and define a user secret
@@ -54,18 +55,18 @@ func TestEndToEndUserJourney(t *testing.T) {
 	//----------------------------------------------------------------------
 	// Step 2: As root, create /llmfs/users/testuser.json with {"jwt_secret":"..."}
 	//----------------------------------------------------------------------
-	opsCreateUserFile := []llmfs.FilesystemOperation{
+	opsCreateUserFile := []types.FilesystemOperation{
 		{
-			Match: llmfs.MatchCriteria{
-				Path: llmfs.PathCriteria{
+			Match: types.MatchCriteria{
+				Path: types.PathCriteria{
 					Exactly: fmt.Sprintf("/llmfs/users/%s.json", testUser),
 				},
 				Type: "file", // we’re effectively creating a file
 			},
-			Operations: []llmfs.SubOperation{
+			Operations: []types.SubOperation{
 				{
 					Operation: "write",
-					Content: &llmfs.ContentPayload{
+					Content: &types.ContentPayload{
 						Content: fmt.Sprintf(`{"jwt_secret":%q}`, testUserSecret),
 					},
 				},
@@ -79,15 +80,15 @@ func TestEndToEndUserJourney(t *testing.T) {
 	//----------------------------------------------------------------------
 	// Step 3: As root, create /users/testuser directory with wrld perms for testUser
 	//----------------------------------------------------------------------
-	opsCreateUserDir := []llmfs.FilesystemOperation{
+	opsCreateUserDir := []types.FilesystemOperation{
 		{
-			Match: llmfs.MatchCriteria{
-				Path: llmfs.PathCriteria{
+			Match: types.MatchCriteria{
+				Path: types.PathCriteria{
 					Exactly: "/users",
 				},
 				Type: "directory",
 			},
-			Operations: []llmfs.SubOperation{
+			Operations: []types.SubOperation{
 				{
 					Operation:    "write",
 					RelativePath: testUser,    // creates "/users/testuser"
@@ -123,14 +124,14 @@ func TestEndToEndUserJourney(t *testing.T) {
 	//----------------------------------------------------------------------
 	// Step 6: Check testUser cannot read, list, or delete "/" or "/users"
 	//----------------------------------------------------------------------
-	opsBadPermissions := []llmfs.FilesystemOperation{
+	opsBadPermissions := []types.FilesystemOperation{
 		{
-			Match: llmfs.MatchCriteria{
-				Path: llmfs.PathCriteria{
+			Match: types.MatchCriteria{
+				Path: types.PathCriteria{
 					Exactly: "/",
 				},
 			},
-			Operations: []llmfs.SubOperation{
+			Operations: []types.SubOperation{
 				{Operation: "list"},
 			},
 		},
@@ -147,15 +148,15 @@ func TestEndToEndUserJourney(t *testing.T) {
 	//----------------------------------------------------------------------
 	// Step 7: Check testUser *can* read/list/write in "/users/testuser"
 	//----------------------------------------------------------------------
-	opsGoodPermissions := []llmfs.FilesystemOperation{
+	opsGoodPermissions := []types.FilesystemOperation{
 		{
-			Match: llmfs.MatchCriteria{
-				Path: llmfs.PathCriteria{
+			Match: types.MatchCriteria{
+				Path: types.PathCriteria{
 					Exactly: fmt.Sprintf("/users/%s", testUser),
 				},
 				Type: "directory",
 			},
-			Operations: []llmfs.SubOperation{
+			Operations: []types.SubOperation{
 				{Operation: "list"},
 			},
 		},
@@ -167,19 +168,19 @@ func TestEndToEndUserJourney(t *testing.T) {
 	//----------------------------------------------------------------------
 	// Step 8: Test writing a file in "/users/testuser"
 	//----------------------------------------------------------------------
-	opsWriteFile := []llmfs.FilesystemOperation{
+	opsWriteFile := []types.FilesystemOperation{
 		{
-			Match: llmfs.MatchCriteria{
-				Path: llmfs.PathCriteria{
+			Match: types.MatchCriteria{
+				Path: types.PathCriteria{
 					Exactly: fmt.Sprintf("/users/%s", testUser),
 				},
 				Type: "directory",
 			},
-			Operations: []llmfs.SubOperation{
+			Operations: []types.SubOperation{
 				{
 					Operation:    "write",
 					RelativePath: "notes.txt",
-					Content: &llmfs.ContentPayload{
+					Content: &types.ContentPayload{
 						Content: "hello from testUser",
 					},
 				},
@@ -234,19 +235,19 @@ func TestEndToEndUserJourney(t *testing.T) {
 	// using a write operation. This will extract the blobID from the URL and store
 	// it in the file record.
 	//-----------------------------------------------------------------------
-	writeFileOp := []llmfs.FilesystemOperation{
+	writeFileOp := []types.FilesystemOperation{
 		{
-			Match: llmfs.MatchCriteria{
-				Path: llmfs.PathCriteria{
+			Match: types.MatchCriteria{
+				Path: types.PathCriteria{
 					Exactly: fmt.Sprintf("/users/%s/blob_reference.txt", testUser),
 				},
 				Type: "file",
 			},
-			Operations: []llmfs.SubOperation{
+			Operations: []types.SubOperation{
 				{
 					Operation: "write",
 					// Providing the blob reference as a URL lets the write query extract the blobID.
-					Content: &llmfs.ContentPayload{
+					Content: &types.ContentPayload{
 						URL: fmt.Sprintf("llmfs://blob/%d", blobID),
 					},
 				},
@@ -262,15 +263,15 @@ func TestEndToEndUserJourney(t *testing.T) {
 	// The RowToFileRecord function (called during a read) will generate a signed URL
 	// if the record has a valid blob_id.
 	// -----------------------------------------------------------------------
-	readFileOp := []llmfs.FilesystemOperation{
+	readFileOp := []types.FilesystemOperation{
 		{
-			Match: llmfs.MatchCriteria{
-				Path: llmfs.PathCriteria{
+			Match: types.MatchCriteria{
+				Path: types.PathCriteria{
 					Exactly: fmt.Sprintf("/users/%s/blob_reference.txt", testUser),
 				},
 				Type: "file",
 			},
-			Operations: []llmfs.SubOperation{
+			Operations: []types.SubOperation{
 				{Operation: "read"},
 			},
 		},
@@ -321,7 +322,7 @@ func generateJWT(username, secret string) (string, error) {
 // and parse back the []llmfs.OperationResult
 //----------------------------------------------------------------------------------
 
-func perform(t *testing.T, ts *httptest.Server, bearerToken string, ops []llmfs.FilesystemOperation) []llmfs.OperationResult {
+func perform(t *testing.T, ts *httptest.Server, bearerToken string, ops []types.FilesystemOperation) []types.OperationResult {
 	t.Helper()
 
 	payload, err := json.Marshal(ops)
@@ -342,7 +343,7 @@ func perform(t *testing.T, ts *httptest.Server, bearerToken string, ops []llmfs.
 	require.Equal(t, http.StatusOK, resp.StatusCode,
 		"expected 200 from /perform, got %d", resp.StatusCode)
 
-	var results []llmfs.OperationResult
+	var results []types.OperationResult
 	err = json.Unmarshal(body, &results)
 	require.NoError(t, err, "failed to unmarshal JSON into []llmfs.OperationResult")
 

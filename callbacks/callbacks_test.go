@@ -9,9 +9,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/dropsite-ai/config"
-	"github.com/dropsite-ai/llmfs"
+	c "github.com/dropsite-ai/config"
+	"github.com/dropsite-ai/llmfs/config"
 	"github.com/dropsite-ai/llmfs/migrate"
+	"github.com/dropsite-ai/llmfs/types"
 	"github.com/dropsite-ai/sqliteutils/pool"
 	"github.com/dropsite-ai/sqliteutils/test"
 	"github.com/stretchr/testify/require"
@@ -89,7 +90,7 @@ func TestPerformFilesystemOpsWithCallbacks(t *testing.T) {
 	defer srv.Close()
 
 	// 3) Override llmfs.Variables so that your callbacks can find the endpoint:
-	llmfs.Variables = &config.Variables{
+	config.Variables = &c.Variables{
 		Endpoints: map[string]string{
 			"testEndpoint": srv.URL,
 		},
@@ -101,51 +102,51 @@ func TestPerformFilesystemOpsWithCallbacks(t *testing.T) {
 	// 4) Define multiple callback definitions in llmfs.Callbacks. Suppose we have:
 	//    - "A_pre" and "B_pre" that match the same path & event => both triggered pre.
 	//    - "A_post" and "B_post" that match the same path & event => both triggered post.
-	llmfs.Callbacks = []config.CallbackDefinition{
+	config.Callbacks = []c.CallbackDefinition{
 		{
 			Name:      "A_pre",
 			Events:    []string{"write"},
 			Timing:    "pre",
-			Target:    config.CallbackTarget{Type: "file", Path: "/somefile.txt"},
+			Target:    c.CallbackTarget{Type: "file", Path: "/somefile.txt"},
 			Endpoints: []string{"testEndpoint"},
 		},
 		{
 			Name:      "B_pre",
 			Events:    []string{"write"},
 			Timing:    "pre",
-			Target:    config.CallbackTarget{Type: "file", Path: "/somefile.txt"},
+			Target:    c.CallbackTarget{Type: "file", Path: "/somefile.txt"},
 			Endpoints: []string{"testEndpoint"},
 		},
 		{
 			Name:      "A_post",
 			Events:    []string{"write"},
 			Timing:    "post",
-			Target:    config.CallbackTarget{Type: "file", Path: "/somefile.txt"},
+			Target:    c.CallbackTarget{Type: "file", Path: "/somefile.txt"},
 			Endpoints: []string{"testEndpoint"},
 		},
 		{
 			Name:      "B_post",
 			Events:    []string{"write"},
 			Timing:    "post",
-			Target:    config.CallbackTarget{Type: "file", Path: "/somefile.txt"},
+			Target:    c.CallbackTarget{Type: "file", Path: "/somefile.txt"},
 			Endpoints: []string{"testEndpoint"},
 		},
 	}
 
 	// 5) Build a single filesystem operation that tries to "write" to /somefile.txt.
 	//    This triggers the "write" event => both pre and post callbacks should match.
-	ops := []llmfs.FilesystemOperation{
+	ops := []types.FilesystemOperation{
 		{
-			Match: llmfs.MatchCriteria{
+			Match: types.MatchCriteria{
 				Type: "file",
-				Path: llmfs.PathCriteria{
+				Path: types.PathCriteria{
 					Exactly: "/somefile.txt",
 				},
 			},
-			Operations: []llmfs.SubOperation{
+			Operations: []types.SubOperation{
 				{
 					Operation: "write",
-					Content: &llmfs.ContentPayload{
+					Content: &types.ContentPayload{
 						Content: "some data",
 					},
 				},
