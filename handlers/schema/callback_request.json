@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "CallbackPayload",
+  "type": "object",
+  "description": "Schema for the JSON payload sent to external callback endpoints.",
+  "properties": {
+    "callback_name": {
+      "type": "string",
+      "description": "Name of the callback definition (e.g. 'A_pre', 'B_post')."
+    },
+    "event": {
+      "type": "string",
+      "enum": ["write", "read", "delete", "list"],
+      "description": "Filesystem event that triggered this callback."
+    },
+    "timing": {
+      "type": "string",
+      "enum": ["pre", "post"],
+      "description": "Whether this is a pre-callback or a post-callback."
+    },
+    "trigger": {
+      "type": "object",
+      "description": "Information describing the item (type + path) that triggered the callback.",
+      "properties": {
+        "target_type": {
+          "type": "string",
+          "enum": ["file", "directory"],
+          "description": "Type of the filesystem item that triggered the callback."
+        },
+        "path": {
+          "type": "string",
+          "description": "Path of the file or directory."
+        }
+      },
+      "required": ["target_type", "path"],
+      "additionalProperties": false
+    },
+    "operation_details": {
+      "type": "object",
+      "description": "Details of the user-initiated sub-operation that caused this callback to fire.",
+      "properties": {
+        "operation_index": {
+          "type": "integer",
+          "description": "Index of the top-level filesystem operation in the request array."
+        },
+        "sub_op_index": {
+          "type": "integer",
+          "description": "Index of the sub-operation inside that top-level item."
+        },
+        "action": {
+          "type": "string",
+          "enum": ["write", "read", "list", "delete"],
+          "description": "Which sub-operation action triggered the callback."
+        },
+        "relative_path": {
+          "type": "string",
+          "description": "If provided, the relative subpath used within the matched parent path."
+        },
+        "description": {
+          "type": "string",
+          "description": "Description text set for a 'write' operation (if any)."
+        },
+        "permissions": {
+          "type": "object",
+          "description": "Any permissions being set for a 'write' operation. Keys are usernames, values are permission strings like 'wrld'.",
+          "patternProperties": {
+            "^[^\\s]+$": {
+              "type": "string",
+              "description": "Permissions granted or updated for this user (e.g. 'w', 'wrld', etc.)."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": ["operation_index", "sub_op_index", "action"],
+      "additionalProperties": false
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp when the callback payload was generated."
+    },
+    "results": {
+      "type": "object",
+      "description": "Sub-operation result object, included only for post-callbacks.",
+      "properties": {
+        "sub_op_index": {
+          "type": "integer",
+          "description": "Sub-operation index this result corresponds to."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the sub-operation, if provided (e.g. 'write')."
+        },
+        "changes": {
+          "type": "integer",
+          "description": "Number of items changed (e.g. files created, updated, or deleted)."
+        },
+        "updated": {
+          "type": "object",
+          "description": "Information about the file or directory that was created, updated, or deleted.",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Action name: 'create', 'update', or 'delete'."
+            },
+            "type": {
+              "type": "string",
+              "description": "'file' or 'directory'."
+            },
+            "path": {
+              "type": "string",
+              "description": "Path of the file or directory that was changed."
+            }
+          },
+          "required": ["path"],
+          "additionalProperties": false
+        },
+        "results": {
+          "type": "array",
+          "description": "When the sub-operation is 'read' or 'list', this array holds the returned file records.",
+          "items": {
+            "type": "object",
+            "title": "FileRecord",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "path": {
+                "type": "string"
+              },
+              "is_directory": {
+                "type": "boolean"
+              },
+              "description": {
+                "type": "string"
+              },
+              "content": {
+                "type": "string"
+              },
+              "blob_id": {
+                "type": "integer"
+              },
+              "blob_url": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": ["id", "path", "is_directory", "created_at", "updated_at"],
+            "additionalProperties": false
+          }
+        },
+        "error": {
+          "type": "string",
+          "description": "Error message if the sub-operation failed."
+        }
+      },
+      "required": ["sub_op_index"],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "callback_name",
+    "event",
+    "timing",
+    "trigger",
+    "operation_details",
+    "timestamp"
+  ],
+  "additionalProperties": false
+}
