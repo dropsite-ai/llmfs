@@ -22,15 +22,15 @@ func buildCallbackRequestBody(
 	subOpRes *t.SubOperationResult,
 ) []byte {
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"callback_name": cb.Name, // <-- references the single callback
 		"event":         event,
 		"timing":        timing,
-		"trigger": map[string]interface{}{
+		"trigger": map[string]any{
 			"target_type": match.Type,
 			"path":        chosenPathString(match),
 		},
-		"operation_details": map[string]interface{}{
+		"operation_details": map[string]any{
 			"operation_index": opIndex,
 			"sub_op_index":    subIndex,
 			"action":          subOp.Operation,

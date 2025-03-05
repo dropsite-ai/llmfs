@@ -59,7 +59,7 @@ func Register(ctx context.Context) http.Handler {
 		systemInstruction := "Call the perform_filesystem_operations function when the user's request can be implemented in one or more filesystem operations."
 
 		// Build the response from our preloaded schemas
-		resp := map[string]interface{}{
+		resp := map[string]any{
 			"system_instruction":      systemInstruction,
 			"perform_request_schema":  performRequestSchema,
 			"perform_response_schema": performResponseSchema,
