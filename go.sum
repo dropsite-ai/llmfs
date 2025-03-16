@@ -1,8 +1,6 @@
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/dropsite-ai/config v0.0.0-20250220044439-c28cc998741f h1:nbnHqp8kIheSBh3ET9EmJsK6/fcrf9UrvBefEIOYUn8=
-github.com/dropsite-ai/config v0.0.0-20250220044439-c28cc998741f/go.mod h1:F8mAEC6/KXowBXAK0yKYG3LIV5Kv2UmoJudGfClZn9c=
 github.com/dropsite-ai/config v0.0.0-20250220185626-e68214e773b2 h1:s4ySW3FYeTNthCC94ZJVxPeNr8jXqF1DhH2wzRdn+3M=
 github.com/dropsite-ai/config v0.0.0-20250220185626-e68214e773b2/go.mod h1:F8mAEC6/KXowBXAK0yKYG3LIV5Kv2UmoJudGfClZn9c=
 github.com/dropsite-ai/sqliteutils v0.0.0-20250211233053-69fac811e93f h1:/yC8G2kkqxuMEpHYrUNl5PyhSC736W49f1d0rgTxsX8=
